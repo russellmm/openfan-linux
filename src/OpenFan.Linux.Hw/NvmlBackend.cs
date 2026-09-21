@@ -117,6 +117,9 @@ public sealed class NvmlBackend : ISensorBackend, IFanActuator
     public bool Available { get; }
     public string DriverVersion { get; private set; } = "";
 
+    /// <summary>Reason the last SetPercent failed, mapped from NVML codes — null when healthy.</summary>
+    public string? LastWriteError { get; private set; }
+
     private sealed class Gpu
     {
         public required int Index;
@@ -249,7 +252,16 @@ public sealed class NvmlBackend : ISensorBackend, IFanActuator
         if (!TryParseFan(controlId, out var gpu, out var fan))
             return false;
         var clamped = Math.Clamp(percent, gpu.MinPercent, 100);
-        return NvmlNative.nvmlDeviceSetFanSpeed_v2(gpu.Handle, fan, (uint)clamped) == NvmlNative.Success;
+        var code = NvmlNative.nvmlDeviceSetFanSpeed_v2(gpu.Handle, fan, (uint)clamped);
+        if (code == NvmlNative.Success)
+            LastWriteError = null;
+        else
+            LastWriteError = code switch
+            {
+                NvmlNative.ErrorNoPermission => "GPU writes need root — privileged helper not installed",
+                _ => $"NVML error {code}",
+            };
+        return code == NvmlNative.Success;
     }
 
     public bool SetDefault(string controlId)

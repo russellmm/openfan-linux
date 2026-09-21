@@ -38,6 +38,9 @@ public sealed partial class HwmonBackend : ISensorBackend, IFanActuator
     public string Name => BackendName;
     public bool Available => Directory.Exists(_root);
 
+    /// <summary>Reason the last SetPercent/SetDefault failed (shown on cards) — null when healthy.</summary>
+    public string? LastWriteError { get; private set; }
+
     /// <summary>Re-enumerates every tick so driver bind/unbind hot-plugs without a restart.</summary>
     public IReadOnlyList<HardwareItem> Discover()
     {
@@ -180,11 +183,15 @@ public sealed partial class HwmonBackend : ISensorBackend, IFanActuator
 
             var duty = (int)Math.Round(clamped * 255.0 / 100.0, MidpointRounding.AwayFromZero);
             File.WriteAllText(path, duty.ToString(CultureInfo.InvariantCulture));
+            LastWriteError = null;
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // EACCES (no udev ACL yet) / EIO: caller counts failures and surfaces the reason.
+            // EACCES (session predates the openfan group?) / EIO: surface a precise reason.
+            LastWriteError = ex is UnauthorizedAccessException
+                ? "permission denied — is this session in the 'openfan' group? (log out/in)"
+                : $"sysfs write failed: {ex.Message}";
             return false;
         }
     }
@@ -204,11 +211,47 @@ public sealed partial class HwmonBackend : ISensorBackend, IFanActuator
         {
             var mode = _initialEnable.TryGetValue(controlId, out var cached) ? cached : 2;
             File.WriteAllText(enablePath, mode.ToString(CultureInfo.InvariantCulture));
+            LastWriteError = null;
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            LastWriteError = ex is UnauthorizedAccessException
+                ? "permission denied restoring auto — 'openfan' group needed"
+                : $"sysfs write failed: {ex.Message}";
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Cheap startup check: can THIS process write any discovered pwm node?
+    /// Returns null when writable, else a user-readable reason (spec §3.4 message).
+    /// </summary>
+    public string? ProbeWriteAccess()
+    {
+        HardwareItem? firstControl = null;
+        foreach (var item in _items)
+        {
+            if (item.Kind == HardwareKind.Control) { firstControl = item; break; }
+        }
+        if (firstControl is null)
+            return Available ? "no PWM controls found" : "hwmon not available";
+
+        var path = SysPathFor(firstControl.Id);
+        if (path is null)
+            return "PWM node path unavailable";
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Write);
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return "PWM nodes not writable — this session lacks the 'openfan' group (log out and back in)";
+        }
+        catch (IOException ex)
+        {
+            return $"PWM nodes not writable: {ex.Message}";
         }
     }
 

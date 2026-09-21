@@ -15,6 +15,7 @@ public sealed partial class MainWindow : Window
     private static readonly IBrush CardBg = new SolidColorBrush(Color.Parse("#1E1E1E"));
     private static readonly IBrush CardBorder = new SolidColorBrush(Color.Parse("#2E2E2E"));
     private static readonly IBrush Accent = new SolidColorBrush(Color.Parse("#E24B4B"));
+    private static readonly IBrush Warn = new SolidColorBrush(Color.Parse("#E5A64B"));
 
     private readonly FanApp _app;
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
@@ -70,6 +71,7 @@ public sealed partial class MainWindow : Window
         public required TextBlock RpmLine { get; init; }
         public required ComboBox Mode { get; init; }
         public required Slider FlatSlider { get; init; }
+        public required TextBlock ErrorLine { get; init; }
     }
 
     private void RebuildCards()
@@ -96,6 +98,14 @@ public sealed partial class MainWindow : Window
 
         var big = new TextBlock { Text = "auto", FontSize = 30, FontWeight = FontWeight.Bold };
         var rpmLine = new TextBlock { Text = "", FontSize = 12, Foreground = Secondary };
+        var errorLine = new TextBlock
+        {
+            Text = "",
+            FontSize = 11,
+            Foreground = Warn,
+            TextWrapping = TextWrapping.Wrap,
+            IsVisible = false,
+        };
 
         var mode = new ComboBox
         {
@@ -170,13 +180,17 @@ public sealed partial class MainWindow : Window
                     group,
                     big,
                     rpmLine,
+                    errorLine,
                     mode,
                     slider,
                 },
             },
         };
 
-        _cards[item.Id] = new CardUi { Item = item, BigValue = big, RpmLine = rpmLine, Mode = mode, FlatSlider = slider };
+        _cards[item.Id] = new CardUi
+        {
+            Item = item, BigValue = big, RpmLine = rpmLine, Mode = mode, FlatSlider = slider, ErrorLine = errorLine,
+        };
         return card;
     }
 
@@ -201,21 +215,49 @@ public sealed partial class MainWindow : Window
 
             var rpm = _app.PairedRpm(card.Item);
             card.RpmLine.Text = rpm is null ? "" : $"{rpm:0} RPM";
+
+            // Surface exactly why a control is not moving (spec §3.4: no silent monitor-only).
+            if (applying && cfg is { Enabled: true } && _app.HasWriteError(id))
+            {
+                card.ErrorLine.Text = _app.WriteError(card.Item) ?? "write failed";
+                card.ErrorLine.IsVisible = true;
+            }
+            else
+            {
+                card.ErrorLine.IsVisible = false;
+            }
         }
+
+        UpdateStatus();
     }
 
     private void UpdateStatus()
     {
-        var gpuEnabled = _app.Settings.Controls.Any(c =>
-            c.Enabled && c.Id.StartsWith("nvml:", StringComparison.OrdinalIgnoreCase));
+        var notes = new List<string>();
 
-        StatusNote.Text = !_app.Nvml.Available
-            ? "Monitor only — NVML unavailable, board sensors shown"
-            : _app.Settings.ApplyCurves
-                ? gpuEnabled && !_app.IsRoot
-                    ? "Applying every 1 s · GPU fan writes need the privileged helper (pending)"
-                    : "Applying every 1 s"
-                : "Monitor only — check Apply curves to take over";
+        if (!_app.Nvml.Available)
+            notes.Add("NVML unavailable — board sensors only");
+
+        if (_app.Settings.ApplyCurves)
+        {
+            notes.Add(_app.Controller.Errors.Count > 0
+                ? $"{_app.Controller.Errors.Count} control(s) failing to write — see cards"
+                : "Applying every 1 s");
+
+            var gpuEnabled = _app.Settings.Controls.Any(c =>
+                c.Enabled && c.Id.StartsWith("nvml:", StringComparison.OrdinalIgnoreCase));
+            if (gpuEnabled && !_app.IsRoot)
+                notes.Add("GPU fan writes need the root helper — not yet installed, those fans stay on driver control");
+        }
+        else
+        {
+            notes.Add("Monitor only — check Apply curves to take over");
+            var probe = _app.StartupWriteProbe();
+            if (probe is not null)
+                notes.Add(probe);
+        }
+
+        StatusNote.Text = string.Join("   ·   ", notes);
     }
 
     private static string CurveIdFor(string controlId) => $"flat:{controlId}";

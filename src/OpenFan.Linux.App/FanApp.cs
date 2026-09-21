@@ -90,6 +90,15 @@ public sealed class FanApp : IDisposable
         return curve is null ? null : FanController.Evaluate(curve, Settings.Curves, _readings);
     }
 
+    /// <summary>Per-backend human reason for the last failed write (spec: never silently monitor-only).</summary>
+    public string? WriteError(HardwareItem item) =>
+        item.Backend.Equals("nvml", StringComparison.OrdinalIgnoreCase) ? Nvml.LastWriteError : Hwmon.LastWriteError;
+
+    public bool HasWriteError(string controlId) => Controller.Errors.ContainsKey(controlId);
+
+    /// <summary>One-open check: does this session actually have PWM write access?</summary>
+    public string? StartupWriteProbe() => Hwmon.ProbeWriteAccess();
+
     public void Save() => Store.Save(Settings);
 
     /// <summary>Exit / Apply-off path: give every owned control back to auto.</summary>
