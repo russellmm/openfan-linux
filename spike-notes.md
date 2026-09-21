@@ -51,7 +51,7 @@ GPU2  RTX PRO 6000 Blackwell WS @ E1:00.0  GetNumFans=2  fan0=30%  MinMax=30–1
 - **Three GPUs**, not two: the dual PRO 6000s plus a GeForce RTX 5060 Ti (PCI `01:00.0`). Multi-GPU inventory/merge must handle all three; PCI bus in names as designed.
 - Each PRO 6000 exposes **2 fans** → per-fan `SetFanSpeed_v2` model applies, matching Windows OpenFan.
 - `GetMinMaxFanSpeed` = 30–100% on all cards — driver-enforced floor agrees with the spec's 30% PRO floor. (5060 Ti reads 0% now = default fan-stop; NVML min when *setting* is reported as 30 anyway.)
-- Fan **write** (`SetFanSpeed_v2`) + `SetDefault` round-trip not yet tested — deliberately, since it spins real fans. Next spike step once russell OKs a live write (bump one PRO fan to e.g. 45% for 10 s, restore).
+- **NVML WRITE PRIVILEGE FINDING (2026-09-21):** `nvmlDeviceSetFanSpeed_v2` returns **NO_PERMISSION (4) as uid 1000**, even though `/dev/nvidia*` are `crw-rw-rw-`. The Linux driver gates fan/config writes on **root euid** (reads are unrestricted). NOT `NOT_SUPPORTED` — the API is live; a root run should control fans. Architecture consequence: NVML writes need a privileged path (CoolerControl solves this with a root daemon + socket GUI; spec §3.4 Phase-2 "openfan-helper" becomes a **requirement**, not an option, for GPU fan control from a user-session app). hwmon PWM is unaffected — the udev ACL route works unprivileged.
 
 ## Conflicts / misc
 
@@ -65,4 +65,5 @@ GPU2  RTX PRO 6000 Blackwell WS @ E1:00.0  GetNumFans=2  fan0=30%  MinMax=30–1
 2. Curve sources worth surfacing: `k10temp Tctl` (primary CPU), `nct6799 PECI/TSI Agent 0 Calibration`, `asusec CPU Package`, NVMe temps. Note SuperIO fan headers have no per-header labels in hwmon (`fanN_label` empty) — UI should show board-style hints where safe, else `Fan N`.
 3. Restore semantics: cache `pwmN_enable` before first write; on this chip "auto" = **5**, not 2. If the app ever dies without restoring, BIOS duty-cycling resumes on its own (chip is in auto mode by default).
 4. Privilege: NVML as plain user ✓. Board PWM needs one-time sudo for udev ACL + modules-load.d; after that the app never runs elevated.
-5. Remaining Phase 0 item: NVML live set/restore round-trip on one PRO fan (needs go-ahead — spins real fans).
+5. Remaining spike item: root-run `--apply-once nvml:<uuid>:fan:0 55` on a PRO 6000 to confirm per-fan independence behind the permission gate (one sudo command; see project chat).
+6. `nvmlDeviceGetFanSpeedRPM` returns an error on these Blackwell cards with driver 595 → tach RPM for GPU fans stays n/a via NVML; percent read-back works (`GetFanSpeed_v2`). UI should hide the RPM half of GPU fan cards, not show a fake 0.

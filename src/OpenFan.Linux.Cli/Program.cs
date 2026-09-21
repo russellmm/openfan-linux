@@ -1,9 +1,9 @@
 using OpenFan.Core.Hardware;
 using OpenFan.Linux.Hw;
 
-// openfan-linux — Phase 2 CLI smoke for the Linux hardware layer (spec §10 Phase 2).
+// openfan-linux — Linux hardware layer CLI (spec §10 Phases 2-3).
 //   openfan-linux --dump [--sysfs PATH]
-//   openfan-linux --apply-once <pwm-id> <percent> [--seconds N] [--sysfs PATH]
+//   openfan-linux --apply-once <control-id> <percent> [--seconds N] [--sysfs PATH]
 
 if (args.Length == 0 || args[0] is "-h" or "--help")
     return Usage(args.Length == 0);
@@ -33,33 +33,40 @@ for (var i = command == "--apply-once" ? 3 : 1; i < args.Length; i++)
     }
 }
 
-var backend = new HwmonBackend(sysfs);
-if (!backend.Available)
+using var hwmon = new HwmonBackend(sysfs);
+using var nvml = new NvmlBackend();
+
+if (!hwmon.Available && !nvml.Available)
 {
-    Console.Error.WriteLine($"hwmon root not found: {sysfs ?? "/sys/class/hwmon"}");
+    Console.Error.WriteLine($"No hardware backends: {sysfs ?? "/sys/class/hwmon"} missing and NVML unavailable.");
     return 2;
 }
 
-var items = backend.Discover();
+// Spec §4.4 merge: hwmon first, NVML wins over nvidia-looking hwmon items.
+var items = InventoryMerger.Merge(hwmon.Discover(), nvml.Available ? nvml.Discover() : []);
 var readings = new Dictionary<string, double?>();
-backend.ReadInto(readings);
+hwmon.ReadInto(readings);
+nvml.ReadInto(readings);
 
 switch (command)
 {
     case "--dump":
-        Dump(backend, items, readings);
+        Dump(items, readings, hwmon, nvml);
         return 0;
 
-    case "--apply-once" when args.Length >= 3:
-        return ApplyOnce(backend, items, args[1], args[2], seconds);
+    case "--apply-once":
+        return ApplyOnce(items, args[1], args[2], seconds, hwmon, nvml);
 
     default:
         return Usage(false);
 }
 
-static void Dump(HwmonBackend backend, IReadOnlyList<HardwareItem> items, Dictionary<string, double?> readings)
+static void Dump(IReadOnlyList<HardwareItem> items, Dictionary<string, double?> readings,
+    HwmonBackend hwmon, NvmlBackend nvml)
 {
-    Console.WriteLine($"openfan-linux --dump  ({items.Count} items, NVML arrives in Phase 3)");
+    var nvmlNote = nvml.Available ? $"NVML driver {nvml.DriverVersion}" : "NVML unavailable (no driver / init failed)";
+    Console.WriteLine($"openfan-linux --dump  ({items.Count} items · {nvmlNote})");
+
     foreach (var group in items.GroupBy(i => i.Group))
     {
         Console.WriteLine();
@@ -71,9 +78,9 @@ static void Dump(HwmonBackend backend, IReadOnlyList<HardwareItem> items, Dictio
             {
                 HardwareKind.Temperature => value is null ? "n/a" : $"{value:0.#} °C",
                 HardwareKind.Tach => value is null ? "n/a" : $"{value:0} RPM",
-                _ => DescribeControl(backend, item, value),
+                _ => DescribeControl(item, value, hwmon),
             };
-            Console.WriteLine($"  {item.Kind,-6} {detail,-24} {item.Name}");
+            Console.WriteLine($"  {item.Kind,-6} {detail,-28} {item.Name}");
             Console.WriteLine($"         {item.Id}");
         }
     }
@@ -82,12 +89,18 @@ static void Dump(HwmonBackend backend, IReadOnlyList<HardwareItem> items, Dictio
     var temps = items.Count(i => i.Kind == HardwareKind.Temperature && readings.GetValueOrDefault(i.Id) is not null);
     var tachs = items.Count(i => i.Kind == HardwareKind.Tach);
     Console.WriteLine();
-    Console.WriteLine($"summary: {controls} pwm controls · {temps} live temps · {tachs} tach inputs");
+    Console.WriteLine($"summary: {controls} fan controls · {temps} live temps · {tachs} tach inputs");
 }
 
-static string DescribeControl(HwmonBackend backend, HardwareItem item, double? duty)
+static string DescribeControl(HardwareItem item, double? duty, HwmonBackend hwmon)
 {
-    var enable = backend.ReadEnableMode(item.Id);
+    if (item.Backend.Equals("nvml", StringComparison.OrdinalIgnoreCase))
+    {
+        var floor = item.MinPercent > 0 ? $"floor {item.MinPercent}% " : "";
+        return $"{floor}duty {(duty is null ? "n/a" : $"{duty:0.#}%")}";
+    }
+
+    var enable = hwmon.ReadEnableMode(item.Id);
     var mode = enable switch
     {
         0 => "off/full",
@@ -98,14 +111,15 @@ static string DescribeControl(HwmonBackend backend, HardwareItem item, double? d
     return $"{mode,-12} duty {(duty is null ? "n/a" : $"{duty:0.#}%")}";
 }
 
-static int ApplyOnce(HwmonBackend backend, IReadOnlyList<HardwareItem> items, string idArg, string percentArg, int seconds)
+static int ApplyOnce(IReadOnlyList<HardwareItem> items, string idArg, string percentArg,
+    int seconds, HwmonBackend hwmon, NvmlBackend nvml)
 {
     var control = items.FirstOrDefault(i =>
         i.Kind == HardwareKind.Control &&
         string.Equals(i.Id, idArg, StringComparison.OrdinalIgnoreCase));
     if (control is null)
     {
-        Console.Error.WriteLine($"No such PWM control: {idArg}");
+        Console.Error.WriteLine($"No such fan control: {idArg}");
         Console.Error.WriteLine("Available controls:");
         foreach (var c in items.Where(i => i.Kind == HardwareKind.Control))
             Console.Error.WriteLine($"  {c.Id}  ({c.Name})");
@@ -118,33 +132,41 @@ static int ApplyOnce(HwmonBackend backend, IReadOnlyList<HardwareItem> items, st
         return 1;
     }
 
-    // Tach with the same header number in the same chip group (heuristic pairing).
-    var fanId = control.Id.Replace(":pwm:", ":fan:");
-    var hasFan = items.Any(i => i.Id == fanId);
+    var actuator = new CompositeActuator(("hwmon", hwmon), ("nvml", nvml));
+    var isNvml = control.Backend.Equals("nvml", StringComparison.OrdinalIgnoreCase);
+    // Paired read-backs: hwmon pwm4↔fan4 by index; nvml fan0↔tach0.
+    var pairedId = isNvml
+        ? control.Id.Replace(":fan:", ":tach:")
+        : control.Id.Replace(":pwm:", ":fan:");
+    var hasPaired = items.Any(i => i.Id == pairedId);
 
-    Console.WriteLine($"Applying {percent}% to {control.Id} for {seconds}s " +
-                      $"(enable was {backend.ReadEnableMode(control.Id)?.ToString() ?? "?"}); Ctrl+C restores auto.");
+    Console.WriteLine($"Applying {percent}% to {control.Id} for {seconds}s; Ctrl+C restores default.");
     try
     {
         var end = DateTime.UtcNow.AddSeconds(seconds);
         while (DateTime.UtcNow < end)
         {
-            if (!backend.SetPercent(control.Id, percent))
+            if (!actuator.SetPercent(control.Id, percent))
                 return PermissionDenied(control.Id);
 
             var readings = new Dictionary<string, double?>();
-            backend.ReadInto(readings);
+            hwmon.ReadInto(readings);
+            nvml.ReadInto(readings);
             var dutyNow = readings.GetValueOrDefault(control.Id);
-            var rpm = hasFan ? readings.GetValueOrDefault(fanId) : null;
-            Console.WriteLine($"  {DateTime.Now:HH:mm:ss} enable={backend.ReadEnableMode(control.Id)} " +
-                              $"duty={dutyNow:0.#}%{(hasFan ? $" fan={rpm:0} RPM" : "")}");
+            var paired = hasPaired ? readings.GetValueOrDefault(pairedId) : null;
+            var extra = isNvml
+                ? (hasPaired ? $" tach={paired:0} RPM" : "")
+                : $" enable={hwmon.ReadEnableMode(control.Id)}{(hasPaired ? $" fan={paired:0} RPM" : "")}";
+            Console.WriteLine($"  {DateTime.Now:HH:mm:ss} duty={dutyNow:0.#}%{extra}");
             Thread.Sleep(1000); // re-write every tick — same EC lesson as Windows (spec §3.2)
         }
     }
     finally
     {
-        backend.SetDefault(control.Id);
-        Console.WriteLine($"Restored enable={backend.ReadEnableMode(control.Id)} (pre-takeover mode).");
+        actuator.SetDefault(control.Id);
+        Console.WriteLine(isNvml
+            ? "Restored NVML default fan control."
+            : $"Restored enable={hwmon.ReadEnableMode(control.Id)} (pre-takeover mode).");
     }
 
     return 0;
@@ -152,9 +174,10 @@ static int ApplyOnce(HwmonBackend backend, IReadOnlyList<HardwareItem> items, st
 
 static int PermissionDenied(string id)
 {
-    Console.Error.WriteLine($"Cannot write {id}: permission denied.");
-    Console.Error.WriteLine("Install the PWM ACL once (see packaging/README): create group 'openfan',");
-    Console.Error.WriteLine("install udev rule + pwm-acl.sh, relogin — or run this one-off command with sudo.");
+    Console.Error.WriteLine($"Cannot write {id}: permission denied or unsupported by the driver.");
+    Console.Error.WriteLine("For hwmon PWM: install the ACL once (see packaging/README), relogin —");
+    Console.Error.WriteLine("or run this one-off command with sudo. NVML fan control needs no ACL;");
+    Console.Error.WriteLine("a NoPermission there means restricted NVIDIA device node access.");
     return 3;
 }
 
@@ -163,12 +186,13 @@ static int Usage(bool ok)
     Console.WriteLine("""
         openfan-linux — OpenFan hardware layer (Ubuntu)
 
-          --dump [--sysfs PATH]                    list PWM controls, temps, tachs
-          --apply-once ID PERCENT [--seconds N]    hold one PWM at PERCENT (default 10 s), then restore auto
+          --dump [--sysfs PATH]                      list PWM + GPU controls, temps, tachs
+          --apply-once ID PERCENT [--seconds N]      hold one fan at PERCENT (default 10 s), then restore
 
-        Example:
+        Examples:
           openfan-linux --dump
           openfan-linux --apply-once hwmon:nct6799:10:pwm:4 40 --seconds 15
+          openfan-linux --apply-once nvml:<GPU-uuid>:fan:0 50 --seconds 8
         """);
     return ok ? 0 : 1;
 }

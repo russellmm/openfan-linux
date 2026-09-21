@@ -38,7 +38,7 @@ This is not a pixel port of the WPF app. It is a Linux-native OpenFan that **reu
 1. On a supported Ubuntu box with `hwmon` PWM and NVIDIA driver: discover at least one board fan + GPU temp/fans.
 2. Graph on CPU Tctl (k10temp) can drive a case fan PWM.
 3. Mix(CPU Graph + GPU Graph) can drive a motherboard fan.
-4. Each PRO 6000 fan is its own control, 30% floor, PCI bus in the name.
+4. Each PRO 6000 fan is its own control, 30% floor, PCI bus in the name. *(verified via `--dump`; live per-fan write needs root — see §3.4 note)*
 5. Apply off = monitor-only. Apply on writes PWM every ~1 s. Exit restores auto.
 6. Uninstalling `fancontrol` / CoolerControl is possible without losing curves (user smoke, not a v1 gate).
 
@@ -126,7 +126,9 @@ Writing `/sys/class/hwmon/hwmonX/pwmN` usually requires root **or** the file to 
 4. NVML fan set typically works as the logged-in user if the NVIDIA device nodes are accessible (`video` / `render` group). If `nvmlDeviceSetFanSpeed_v2` returns NoPermission, show a clear Settings message (do not silently monitor-only forever without saying why).
 
 **Rejected for v1:** setuid root binary (too easy to get wrong).  
-**Phase 2:** small privileged helper (`openfan-helper`) over Unix socket with polkit, if udev ACL is not enough on some boards.
+> **Linux finding (spike 2026-09-21):** NVML fan *writes* return NO_PERMISSION for uid 1000 even with world-writable `/dev/nvidia*` — the driver gates config writes on root euid. hwmon PWM is fine via the ACL. So a privileged path for GPU fans is **required**, not conditional.
+
+**Phase 2 (now required for NVML fan control):** small privileged helper (`openfan-helper`) over Unix socket with polkit, or sudoers-gated one-shot setter; decide during Phase 4/5 app work. CLI may run under sudo meanwhile.
 
 ---
 
@@ -335,9 +337,9 @@ On the intended Ubuntu machine:
 
 ### Phase 3 — NVML on Linux
 
-- [ ] Port NvmlBackend to `libnvidia-ml.so.1`
-- [ ] PCI labels, 30% floor, merge rule
-- [ ] `--dump` includes GPUs
+- [x] Port NvmlBackend to `libnvidia-ml.so.1`
+- [x] PCI labels, 30% floor, merge rule
+- [x] `--dump` includes GPUs
 
 **Checkpoint:** independent PRO fans from CLI.
 
@@ -388,8 +390,8 @@ On the intended Ubuntu machine:
 - [x] Task 2.4: udev ACL + group — installed on target 2026-09-21; `--apply-once` held pwm4 @40% 15 s and restored auto(5)
 
 ### Phase 3
-- [ ] Task 3.1: NVML P/Invoke on Linux
-- [ ] Task 3.2: PCI names + floor + merge
+- [x] Task 3.1: NVML P/Invoke on Linux
+- [x] Task 3.2: PCI names + floor + merge — *live per-fan write checkpoint pending one root run (driver gates writes on root)*
 
 ### Phase 4
 - [ ] Task 4.1: Avalonia app shell + tray + apply
