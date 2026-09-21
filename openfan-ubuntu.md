@@ -328,7 +328,7 @@ On the intended Ubuntu machine:
 
 - [x] Enumerate real sysfs
 - [x] `openfan-linux --dump` prints inventory (like DumpLhm)
-- [ ] SetPercent / SetDefault on one pwm with `--apply-once`
+- [x] SetPercent / SetDefault on one pwm with `--apply-once`
 - [x] udev rule prototype
 
 **Checkpoint:** command-line can hold a case fan at 40% and restore auto.
@@ -385,7 +385,7 @@ On the intended Ubuntu machine:
 - [x] Task 2.1: Hwmon enumerate + stable IDs (TDD on fixture tree)
 - [x] Task 2.2: pwm enable/value write + restore
 - [x] Task 2.3: `--dump` / `--apply-once` CLI
-- [ ] Task 2.4: udev ACL + group — *prototype in `packaging/`; system install + live checkpoint pending one-time sudo*
+- [x] Task 2.4: udev ACL + group — installed on target 2026-09-21; `--apply-once` held pwm4 @40% 15 s and restored auto(5)
 
 ### Phase 3
 - [ ] Task 3.1: NVML P/Invoke on Linux
