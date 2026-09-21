@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>OpenFan.Linux.Cli</RootNamespace>
+    <AssemblyName>openfan-linux</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\OpenFan.Core\OpenFan.Core.csproj" />
+    <ProjectReference Include="..\OpenFan.Linux.Hw\OpenFan.Linux.Hw.csproj" />
+  </ItemGroup>
+
+</Project>

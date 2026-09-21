@@ -1,6 +1,6 @@
 # Design & implementation plan: OpenFan on Ubuntu
 
-**Status:** Draft — design only (do not implement until this document is approved)  
+**Status:** Approved — implementation underway (Phase 2); hardware spike answers in `spike-notes.md`  
 **Date:** 2026-09-16  
 **Companion:** Windows OpenFan at `E:\hermes_working\OpenFan\` (WPF + LHM + NVML)  
 **Intent:** Same product job as Windows OpenFan — own motherboard/case/AIO fans and NVIDIA GPU fans with Flat / Graph / Mix curves — on Ubuntu, without LibreHardwareMonitor, WinRing0, HWiNFO, or WPF.
@@ -306,30 +306,30 @@ Do **not** start Phase 2 until Phase 0 spike answers are written into this doc.
 
 On the intended Ubuntu machine:
 
-- [ ] `uname -r`, NVIDIA driver version, `nvidia-smi`
-- [ ] `ls /sys/class/hwmon/*/name` and for each: temp/fan/pwm files
+- [x] `uname -r`, NVIDIA driver version, `nvidia-smi`
+- [x] `ls /sys/class/hwmon/*/name` and for each: temp/fan/pwm files
 - [ ] Can a non-root user write `pwm1` after a one-off `chmod`?
 - [ ] NVML: small C# or Python `nvmlInit` + fan count + set 30% on one PRO fan, restore default
-- [ ] k10temp: which temp labels exist (Tctl, CCD?)
-- [ ] NCT6701D: present or not
+- [x] k10temp: which temp labels exist (Tctl, CCD?)
+- [x] NCT6701D: present or not
 
 **Exit criteria:** a short `spike-notes.md` with yes/no for board PWM and GPU NVML. If board PWM is no, v1 is **GPU-only + read-only board temps**.
 
 ### Phase 1 — Shared curves + fake hwmon
 
-- [ ] New `OpenFan.Linux` solution, MIT
-- [ ] Copy curve/config/FanController tests from Windows Core (strip LHM)
-- [ ] Fake `ISensorBackend` + Fake actuator; TDD apply loop (re-apply same %)
-- [ ] JSON config under XDG
+- [x] New `OpenFan.Linux` solution, MIT
+- [x] Copy curve/config/FanController tests from Windows Core (strip LHM)
+- [x] Fake `ISensorBackend` + Fake actuator; TDD apply loop (re-apply same %)
+- [x] JSON config under XDG
 
 **Checkpoint:** `dotnet test` green on Ubuntu and on Windows (the Linux tree should build on both).
 
 ### Phase 2 — Real HwmonBackend + CLI smoke
 
-- [ ] Enumerate real sysfs
-- [ ] `openfan-linux --dump` prints inventory (like DumpLhm)
+- [x] Enumerate real sysfs
+- [x] `openfan-linux --dump` prints inventory (like DumpLhm)
 - [ ] SetPercent / SetDefault on one pwm with `--apply-once`
-- [ ] udev rule prototype
+- [x] udev rule prototype
 
 **Checkpoint:** command-line can hold a case fan at 40% and restore auto.
 
@@ -371,21 +371,21 @@ On the intended Ubuntu machine:
 ## 11. Task list (for when implementation is approved)
 
 ### Phase 0
-- [ ] Task 0.1: hwmon inventory spike notes
+- [x] Task 0.1: hwmon inventory spike notes
 - [ ] Task 0.2: NVML fan set/restore spike
-- [ ] Task 0.3: Go/no-go on motherboard PWM for v1
+- [x] Task 0.3: Go/no-go on motherboard PWM for v1
 
 ### Phase 1
-- [ ] Task 1.1: Solution skeleton + MIT + gitignore
-- [ ] Task 1.2: Port curve tests (Graph, Mix, hysteresis, calibration)
-- [ ] Task 1.3: FanController TDD with fake actuator (always re-apply)
-- [ ] Task 1.4: XDG config store
+- [x] Task 1.1: Solution skeleton + MIT + gitignore
+- [x] Task 1.2: Port curve tests (Graph, Mix, hysteresis, calibration)
+- [x] Task 1.3: FanController TDD with fake actuator (always re-apply)
+- [x] Task 1.4: XDG config store
 
 ### Phase 2
-- [ ] Task 2.1: Hwmon enumerate + stable IDs (TDD on fixture tree)
-- [ ] Task 2.2: pwm enable/value write + restore
-- [ ] Task 2.3: `--dump` / `--apply-once` CLI
-- [ ] Task 2.4: udev ACL + group
+- [x] Task 2.1: Hwmon enumerate + stable IDs (TDD on fixture tree)
+- [x] Task 2.2: pwm enable/value write + restore
+- [x] Task 2.3: `--dump` / `--apply-once` CLI
+- [ ] Task 2.4: udev ACL + group — *prototype in `packaging/`; system install + live checkpoint pending one-time sudo*
 
 ### Phase 3
 - [ ] Task 3.1: NVML P/Invoke on Linux

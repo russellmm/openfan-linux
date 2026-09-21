@@ -1,0 +1,6 @@
+# OpenFan Linux — PWM write ACL (spec §3.4). hwmon duty/enable nodes are sysfs
+# *attributes* (not udev devices), so a RUN script applies group ownership to them.
+# Installed alongside pwm-acl.sh; see packaging/README.md.
+
+SUBSYSTEM=="hwmon", ACTION=="add",    RUN+="/usr/local/lib/openfan/pwm-acl.sh"
+SUBSYSTEM=="hwmon", ACTION=="change", RUN+="/usr/local/lib/openfan/pwm-acl.sh"
