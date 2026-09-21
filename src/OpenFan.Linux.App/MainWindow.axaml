@@ -1,0 +1,33 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="OpenFan.Linux.App.MainWindow"
+        Title="OpenFan"
+        Width="1200" Height="780"
+        Background="#141414"
+        WindowStartupLocation="CenterScreen">
+
+  <DockPanel Margin="16">
+
+    <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,Auto,*,Auto" Margin="0,0,0,14">
+      <TextBlock Grid.Column="0" Text="OpenFan" FontSize="22" FontWeight="SemiBold"
+                 VerticalAlignment="Center" Foreground="#F2F2F2" />
+      <CheckBox x:Name="ApplyCurvesBox" Grid.Column="1" Content="Apply curves"
+                Margin="18,0,0,0" VerticalAlignment="Center" FontSize="14" />
+      <TextBlock x:Name="StatusNote" Grid.Column="2" Margin="18,0,0,0"
+                 VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}" />
+      <TextBlock x:Name="VersionNote" Grid.Column="3" VerticalAlignment="Center"
+                 Foreground="{StaticResource TextSecondary}" FontSize="12" />
+    </Grid>
+
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+      <ItemsControl x:Name="Cards">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <WrapPanel Orientation="Horizontal" />
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+      </ItemsControl>
+    </ScrollViewer>
+
+  </DockPanel>
+</Window>
