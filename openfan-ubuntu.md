@@ -341,7 +341,7 @@ On the intended Ubuntu machine:
 - [x] PCI labels, 30% floor, merge rule
 - [x] `--dump` includes GPUs
 
-**Checkpoint:** independent PRO fans from CLI.
+**Checkpoint:** independent PRO fans from CLI. ✅ PASSED 2026-09-21 (root run; user-run needs the §3.4 helper).
 
 ### Phase 4 — Avalonia shell
 
@@ -391,7 +391,7 @@ On the intended Ubuntu machine:
 
 ### Phase 3
 - [x] Task 3.1: NVML P/Invoke on Linux
-- [x] Task 3.2: PCI names + floor + merge — *live per-fan write checkpoint pending one root run (driver gates writes on root)*
+- [x] Task 3.2: PCI names + floor + merge — live checkpoint PASSED under sudo: fan0→55% ramp, fan1 held 30%, default restored
 
 ### Phase 4
 - [ ] Task 4.1: Avalonia app shell + tray + apply
