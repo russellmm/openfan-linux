@@ -368,17 +368,28 @@ public sealed partial class MainWindow : Window
             var cfg = _app.Settings.Controls.FirstOrDefault(c => c.Id == id);
             var commanded = applying && cfg is { Enabled: true } ? _app.CommandedPercent(cfg) : null;
             var rpm = _app.PairedRpm(card.Item);
+            // NVML fan controls report their measured duty under the control's own id.
+            var actual = id.StartsWith("nvml:", StringComparison.OrdinalIgnoreCase) ? _app.Reading(id) : null;
 
             if (commanded is double pct)
             {
-                card.ValueLine.Text = rpm is null ? $"{pct:0.#} %" : $"{pct:0.#} %     {rpm:0} RPM";
+                card.ValueLine.Text = rpm is not null
+                    ? $"{pct:0.#} %     {rpm:0} RPM"
+                    : actual is not null && Math.Abs(actual.Value - pct) > 1.5
+                        ? $"{pct:0.#} %   now {actual:0} %" // mid-ramp: target vs measured
+                        : $"{pct:0.#} %";
                 card.ValueLine.Foreground = ValueText;
+            }
+            else if (actual is not null)
+            {
+                card.ValueLine.Text = rpm is null ? $"{actual:0} %" : $"{actual:0} %     {rpm:0} RPM";
+                card.ValueLine.Foreground = Secondary; // monitoring shows the real fan speed
             }
             else
             {
                 card.ValueLine.Text = rpm is null
                     ? (applying ? "—" : "auto")
-                    : $"auto     {rpm:0} RPM"; // monitoring still shows real speed
+                    : $"auto     {rpm:0} RPM";
                 card.ValueLine.Foreground = Secondary;
             }
 
