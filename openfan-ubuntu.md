@@ -346,7 +346,7 @@ On the intended Ubuntu machine:
 ### Phase 4 — Avalonia shell
 
 - [ ] Dark window, Home cards (Control / Flat / Graph / Mix) — port layout ideas, not XAML
-- [ ] Apply checkbox, tray, single-instance, Exit restore
+- [x] Apply checkbox, tray, single-instance, Exit restore — user-verified on target 2026-09-21
 - [ ] Graph editor, calibrate, hide, drag-reorder
 - [ ] Settings, Theme accent, About (versions + Check for OpenFan updates via GitHub)
 
