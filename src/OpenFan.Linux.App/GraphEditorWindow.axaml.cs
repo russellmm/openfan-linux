@@ -29,6 +29,7 @@ public sealed partial class GraphEditorWindow : Window
     private readonly CurveSettings _edit; // working copy — committed via onOk only
     private readonly Action<CurveSettings> _onOk;
     private readonly DispatcherTimer _tempTimer = new() { Interval = TimeSpan.FromSeconds(1) };
+    private readonly List<(ComboBoxItem Item, string Id, string BaseLabel)> _sensorItems = [];
     private int _dragging = -1;
     private int _selected = -1;
     private bool _suppress;
@@ -47,7 +48,9 @@ public sealed partial class GraphEditorWindow : Window
                      .Where(i => i.Kind == HardwareKind.Temperature)
                      .OrderBy(i => i.Group).ThenBy(i => i.Name))
         {
-            SensorBox.Items.Add(new ComboBoxItem { Content = $"{t.Name}  ·  {t.Group}", Tag = t.Id });
+            var item = new ComboBoxItem { Tag = t.Id };
+            SensorBox.Items.Add(item);
+            _sensorItems.Add((item, t.Id, $"{t.Name}  ·  {t.Group}"));
         }
         SensorBox.SelectedItem = SensorBox.Items
             .OfType<ComboBoxItem>().FirstOrDefault(i => (string?)i.Tag == _edit.SensorId);
@@ -271,6 +274,14 @@ public sealed partial class GraphEditorWindow : Window
     {
         var t = CurrentTemp();
         TempReadout.Text = t is null ? "no sensor selected" : $"{t:0.0} °C";
+
+        // Live readings inside the sensor dropdown, e.g. "Composite · nvme — 41 °C".
+        foreach (var (item, id, baseLabel) in _sensorItems)
+        {
+            var r = _app.Reading(id);
+            item.Content = r is null ? baseLabel : $"{baseLabel}   —   {r:0.#} °C";
+        }
+
         Render();
     }
 
