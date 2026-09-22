@@ -50,6 +50,17 @@ nvml.ReadInto(readings);
 
 switch (command)
 {
+    case "--procs":
+    {
+        foreach (var snap in new OpenFan.Linux.Hw.NvmlBackend().SnapshotAll())
+        {
+            Console.WriteLine($"{snap.Index} {snap.Name}: {snap.Processes.Count} procs");
+            foreach (var pr in snap.Processes)
+                Console.WriteLine($"   pid={pr.Pid} name={pr.Name} compute={pr.Compute} mem={pr.MemBytes / 1048576.0:0.#}MB");
+        }
+        return 0;
+    }
+
     case "--dump":
         Dump(items, readings, hwmon, nvml);
         return 0;

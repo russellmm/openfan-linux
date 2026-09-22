@@ -49,6 +49,13 @@ public sealed partial class MainWindow : Window
             UpdateValues();
         };
 
+        ToolTip.SetTip(NavHome, "Ctrl+1");
+        ToolTip.SetTip(NavGpus, "Ctrl+2");
+        ToolTip.SetTip(NavTheme, "Ctrl+3");
+        ToolTip.SetTip(NavTray, "Ctrl+4");
+        ToolTip.SetTip(NavSettings, "Ctrl+5");
+        ToolTip.SetTip(NavAbout, "Ctrl+6");
+
         RefreshBtn.Click += (_, _) => _app.RefreshInventory(force: true);
         ExitBtn.Click += (_, _) =>
         {
@@ -300,7 +307,7 @@ public sealed partial class MainWindow : Window
             Margin = new Thickness(0, 0, 24, 0),
             Children =
             {
-                new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Children = { new TextBlock { Text = "GPU", FontWeight = FontWeight.SemiBold }, gpuPct } },
+                new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Children = { new TextBlock { Text = "GPU", FontWeight = FontWeight.SemiBold }, Col(gpuPct, 1) }},
                 gpuBar,
             },
         };
@@ -345,7 +352,11 @@ public sealed partial class MainWindow : Window
                 {
                     new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Children = { titleBlock, powerControls } },
                     new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), Children = { gpuBarPanel, vramBarPanel } },
-                    new Grid { ColumnDefinitions = new ColumnDefinitions("1.2*,1.4*,0.8*,1.2*,1.2*,1.6*"), Children = { tempV, powerV, pstateV, fanPctV, fanRpmV, clocksV } },
+                    new Grid
+                    {
+                        ColumnDefinitions = new ColumnDefinitions("1.2*,1.4*,0.8*,1.2*,1.2*,1.6*"),
+                        Children = { Col(tempV, 0), Col(powerV, 1), Col(pstateV, 2), Col(fanPctV, 3), Col(fanRpmV, 4), Col(clocksV, 5) },
+                    },
                     pcieLine,
                     procHeader,
                     procList,
@@ -423,6 +434,30 @@ public sealed partial class MainWindow : Window
         s.WindowX = Position.X;
         s.WindowY = Position.Y;
         _app.Save();
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        if (e.KeyModifiers == KeyModifiers.Control)
+        {
+            RadioButton? target = e.Key switch
+            {
+                Key.D1 or Key.NumPad1 => NavHome,
+                Key.D2 or Key.NumPad2 => NavGpus,
+                Key.D3 or Key.NumPad3 => NavTheme,
+                Key.D4 or Key.NumPad4 => NavTray,
+                Key.D5 or Key.NumPad5 => NavSettings,
+                Key.D6 or Key.NumPad6 => NavAbout,
+                _ => null,
+            };
+            if (target is not null)
+            {
+                target.IsChecked = true; // Checked handler performs the page switch
+                e.Handled = true;
+                return;
+            }
+        }
+        base.OnKeyDown(e);
     }
 
     protected override void OnClosing(WindowClosingEventArgs e)

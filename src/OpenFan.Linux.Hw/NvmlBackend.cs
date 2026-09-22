@@ -94,10 +94,10 @@ internal static class NvmlNative
     public static extern int nvmlDeviceGetPcieThroughput(nint device, uint counter, out uint kiloBytesPerSec);
 
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-    public static extern int nvmlDeviceGetGraphicsRunningProcesses_v3(nint device, ref uint count, ProcessInfo[]? infos);
+    public static extern int nvmlDeviceGetGraphicsRunningProcesses_v3(nint device, ref uint count, nint infos);
 
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-    public static extern int nvmlDeviceGetComputeRunningProcesses_v3(nint device, ref uint count, ProcessInfo[]? infos);
+    public static extern int nvmlDeviceGetComputeRunningProcesses_v3(nint device, ref uint count, nint infos);
 
     [StructLayout(LayoutKind.Sequential)]
     public struct Utilization
@@ -395,14 +395,25 @@ public sealed class NvmlBackend : ISensorBackend, IFanActuator, IGpuPowerWriter
         {
             uint n = 0;
             var rc = compute
-                ? NvmlNative.nvmlDeviceGetComputeRunningProcesses_v3(handle, ref n, null)
-                : NvmlNative.nvmlDeviceGetGraphicsRunningProcesses_v3(handle, ref n, null);
+                ? NvmlNative.nvmlDeviceGetComputeRunningProcesses_v3(handle, ref n, 0)
+                : NvmlNative.nvmlDeviceGetGraphicsRunningProcesses_v3(handle, ref n, 0);
             if (rc is not (NvmlNative.Success or 7) || n == 0) // 7 = INSUFFICIENT_SIZE (count probe)
                 return;
+
+            // Pinned buffer, passed as a raw pointer: the default array marshaller hands NVML a copy.
             var arr = new NvmlNative.ProcessInfo[n];
-            rc = compute
-                ? NvmlNative.nvmlDeviceGetComputeRunningProcesses_v3(handle, ref n, arr)
-                : NvmlNative.nvmlDeviceGetGraphicsRunningProcesses_v3(handle, ref n, arr);
+            var gc = GCHandle.Alloc(arr, GCHandleType.Pinned);
+            try
+            {
+                rc = compute
+                    ? NvmlNative.nvmlDeviceGetComputeRunningProcesses_v3(handle, ref n, gc.AddrOfPinnedObject())
+                    : NvmlNative.nvmlDeviceGetGraphicsRunningProcesses_v3(handle, ref n, gc.AddrOfPinnedObject());
+            }
+            finally
+            {
+                gc.Free();
+            }
+
             if (rc != NvmlNative.Success)
                 return;
             foreach (var pi in arr[..(int)n])

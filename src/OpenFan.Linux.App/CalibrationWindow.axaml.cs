@@ -210,17 +210,16 @@ public sealed partial class CalibrationWindow : Window
                 Validate();
             };
 
+            Grid.SetColumn(rpmBox, 1);
+            var avoidHolder = new Panel { Children = { avoid } };
+            Grid.SetColumn(avoidHolder, 2);
+            Grid.SetColumn(del, 3);
+
             _rows.Add(row);
             Rows.Children.Add(new Grid
             {
                 ColumnDefinitions = new ColumnDefinitions("150,210,90,60"),
-                Children =
-                {
-                    cmdBox,
-                    rpmBox,
-                    new Panel { Children = { avoid } },
-                    del,
-                },
+                Children = { cmdBox, rpmBox, avoidHolder, del },
             });
         }
     }
