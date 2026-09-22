@@ -228,18 +228,38 @@ public sealed partial class MainWindow : Window
 
     private Control BuildCard(HardwareItem item)
     {
-        var title = new TextBlock
+        var existingCfg = _app.Settings.Controls.FirstOrDefault(c => c.Id == item.Id);
+
+        // Friendly name: click to rename (persisted per control; original id stays in the tooltip).
+        var title = new TextBox
         {
-            Text = item.Name,
-            FontSize = 15,
-            FontWeight = FontWeight.SemiBold,
-            Foreground = ValueText,
-            TextTrimming = TextTrimming.CharacterEllipsis,
+            Text = string.IsNullOrWhiteSpace(existingCfg?.Name) ? item.Name : existingCfg!.Name,
+            Classes = { "cardname" },
         };
-        ToolTip.SetTip(title, $"{item.Name}\n{item.Id}");
+        ToolTip.SetTip(title, $"{item.Name}\n{item.Id}\nClick to rename.");
+        title.LostFocus += (_, _) =>
+        {
+            var c = FindOrCreateCfg(item);
+            var text = (title.Text ?? "").Trim();
+            if (text.Length == 0)
+            {
+                title.Text = c.Name = item.Name; // never leave a card unnamed
+                _app.Save();
+                return;
+            }
+            if (text != c.Name)
+            {
+                c.Name = text;
+                _app.Save();
+            }
+        };
+        title.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+                TopLevel.GetTopLevel(title)?.FocusManager?.ClearFocus(); // blur → commit
+        };
         var group = new TextBlock { Text = item.Group, FontSize = 11, Foreground = Secondary };
 
-        var existingCfg = _app.Settings.Controls.FirstOrDefault(c => c.Id == item.Id);
         var suppress = false; // checkbox ↔ dropdown mutual updates must not re-enter
 
         var check = new CheckBox
