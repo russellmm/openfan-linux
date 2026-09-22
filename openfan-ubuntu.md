@@ -347,7 +347,7 @@ On the intended Ubuntu machine:
 
 - [ ] Dark window, Home cards (Control / Flat / Graph / Mix) — port layout ideas, not XAML
 - [x] Apply checkbox, tray, single-instance, Exit restore — user-verified on target 2026-09-21
-- [ ] Graph editor, calibrate, hide, drag-reorder
+- [ ] Graph editor ✓ (canvas add/drag, sensor, hysteresis, max-speed), calibrate, hide, drag-reorder
 - [ ] Settings, Theme accent, About (versions + Check for OpenFan updates via GitHub)
 
 **Checkpoint:** daily-driver usable on GPU fans; board fans if Phase 0 allowed.
@@ -396,7 +396,7 @@ On the intended Ubuntu machine:
 ### Phase 4
 - [ ] Task 4.1: Avalonia app shell + tray + apply
 - [ ] Task 4.2: Control + curve cards
-- [ ] Task 4.3: Graph editor + calibrate
+- [ ] Task 4.3: Graph editor ✓ 2026-09-21 (Graph mode on cards auto-opens editor; live edits applied next tick) + calibrate
 - [ ] Task 4.4: Settings / Theme / About
 
 ### Phase 5
