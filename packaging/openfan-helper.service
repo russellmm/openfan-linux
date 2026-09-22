@@ -1,6 +1,6 @@
 [Unit]
 Description=OpenFan privileged NVIDIA GPU fan helper
-Documentation=https://github.com/russellmm/OpenFan (openfan-linux packaging/README.md)
+Documentation=https://github.com/russellmm/OpenFan
 After=multi-user.target
 
 [Service]
