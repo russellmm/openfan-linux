@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Platform.Storage;
@@ -517,20 +518,45 @@ public sealed partial class MainWindow : Window
     {
         body.Children.Add(new TextBlock { Text = "Fan speed", FontSize = 11, Foreground = Secondary });
 
-        var percentText = new TextBlock
+        // Percent reads as plain text; click to type any value (reference: quiet affordance).
+        var percentBox = new TextBox
         {
-            Text = $"{curve.Percent:0} %",
+            Text = $"{curve.Percent:0}",
             FontSize = 20,
             FontWeight = FontWeight.Bold,
             Foreground = ValueText,
+            BorderThickness = new Thickness(0),
+            Background = null,
+            Padding = new Thickness(0),
+            MinWidth = 52,
+            TextAlignment = TextAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
-            MinWidth = 70,
+        };
+
+        void Commit(bool normalize)
+        {
+            if (double.TryParse(percentBox.Text, out var v))
+            {
+                curve.Percent = Math.Clamp(v, 0, 100);
+                _app.Save();
+                UpdateValues();
+            }
+            if (normalize)
+                percentBox.Text = $"{curve.Percent:0}"; // repair partial/garbage input on exit
+        }
+
+        percentBox.TextChanged += (_, _) => Commit(normalize: false);
+        percentBox.LostFocus += (_, _) => Commit(normalize: true);
+        percentBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+                TopLevel.GetTopLevel(percentBox)?.FocusManager?.ClearFocus(); // blur → LostFocus commits + normalizes
         };
 
         void Adjust(double delta)
         {
             curve.Percent = Math.Clamp(curve.Percent + delta, 0, 100);
-            percentText.Text = $"{curve.Percent:0} %";
+            percentBox.Text = $"{curve.Percent:0}";
             _app.Save();
             UpdateValues();
         }
@@ -544,7 +570,7 @@ public sealed partial class MainWindow : Window
         {
             Orientation = Orientation.Horizontal,
             Spacing = 10,
-            Children = { minus, percentText, plus },
+            Children = { minus, percentBox, new TextBlock { Text = "%", FontSize = 20, FontWeight = FontWeight.Bold, Foreground = ValueText, VerticalAlignment = VerticalAlignment.Center }, plus },
         });
     }
 
