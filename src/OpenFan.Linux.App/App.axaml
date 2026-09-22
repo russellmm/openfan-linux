@@ -42,6 +42,30 @@
       <Setter Property="TextBlock.Foreground" Value="#FFFFFF" />
     </Style>
 
+    <!-- Floating action buttons for creating curves (reference: Home bottom-right). -->
+    <Style Selector="Button.fab">
+      <Setter Property="Width" Value="74" />
+      <Setter Property="Height" Value="74" />
+      <Setter Property="CornerRadius" Value="37" />
+      <Setter Property="Background" Value="#4A5D68" />
+      <Setter Property="Foreground" Value="#FFFFFF" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+
+    <!-- Borderless editable name inside cards. -->
+    <Style Selector="TextBox.cardname">
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="FontSize" Value="15" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="#F2F2F2" />
+      <Setter Property="MinWidth" Value="60" />
+    </Style>
+
     <!-- Ok-style solid accent button (reference: graph/calibration dialogs). -->
     <Style Selector="Button.accent">
       <Setter Property="Background" Value="#F0A03C" />

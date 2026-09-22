@@ -1,6 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Shapes;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -17,10 +17,13 @@ public sealed partial class MainWindow : Window
     private static readonly IBrush CardBorder = new SolidColorBrush(Color.Parse("#2C363D"));
     private static readonly IBrush Accent = new SolidColorBrush(Color.Parse("#F0A03C"));
     private static readonly IBrush Warn = new SolidColorBrush(Color.Parse("#EF6B6B"));
+    private static readonly IBrush ValueText = new SolidColorBrush(Color.Parse("#F2F2F2"));
+    private static readonly IBrush AreaFill = new SolidColorBrush(Color.FromArgb(0x59, 0xF0, 0xA0, 0x3C));
 
     private readonly FanApp _app;
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly Dictionary<string, CardUi> _cards = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<Action> _curveUpdaters = [];
 
     /// <summary>Set by the tray Exit item — X alone only hides to tray (spec §3.2).</summary>
     public bool Exiting { get; set; }
@@ -41,6 +44,10 @@ public sealed partial class MainWindow : Window
             UpdateValues();
         };
 
+        NewFlatFab.Click += (_, _) => CreateCurve("flat");
+        NewGraphFab.Click += (_, _) => CreateCurve("graph");
+        NewMixFab.Click += (_, _) => CreateCurve("mix");
+
         _homeSubtitle = $"v{typeof(MainWindow).Assembly.GetName().Version?.ToString(3)} · hwmon + NVML";
 
         NavHome.Checked += (_, _) => ShowPage("home");
@@ -49,15 +56,17 @@ public sealed partial class MainWindow : Window
         NavTray.Checked += (_, _) => ShowPage("tray");
         NavSettings.Checked += (_, _) => ShowPage("settings");
         NavAbout.Checked += (_, _) => ShowPage("about");
-        ManageCurvesBtn.Click += (_, _) =>
-            new CurveLibraryWindow(_app, RebuildCards).Show(this);
-
         PageSubtitle.Text = _homeSubtitle;
         ClockText.Text = DateTime.Now.ToString("h:mm:ss tt");
 
-        _app.InventoryChanged += RebuildCards;
+        _app.InventoryChanged += () =>
+        {
+            RebuildCards();
+            RebuildCurveCards();
+        };
         _app.Ticked += UpdateValues;
         RebuildCards();
+        RebuildCurveCards();
         UpdateStatus();
         _app.Tick(); // first paint now, not one timer-tick late
 
@@ -118,7 +127,7 @@ public sealed partial class MainWindow : Window
         var count = _app.Inventory
             .Where(i => i.Id.StartsWith("nvml:", StringComparison.OrdinalIgnoreCase))
             .Select(i => i.Group).Distinct().Count();
-        return $"{count} GPU(s) · {(NvmlDriverVersion())}";
+        return $"{count} GPU(s) · {NvmlDriverVersion()}";
     }
 
     private string NvmlDriverVersion()
@@ -139,13 +148,14 @@ public sealed partial class MainWindow : Window
         base.OnClosing(e);
     }
 
+    // ---- fan cards (Controls section) ---------------------------------------
+
     private sealed class CardUi
     {
         public required HardwareItem Item { get; init; }
-        public required TextBlock BigValue { get; init; }
-        public required TextBlock RpmLine { get; init; }
+        public required TextBlock ValueLine { get; init; }
+        public required CheckBox CurveCheck { get; init; }
         public required ComboBox Mode { get; init; }
-        public required Slider FlatSlider { get; init; }
         public required TextBlock ErrorLine { get; init; }
     }
 
@@ -166,13 +176,34 @@ public sealed partial class MainWindow : Window
             Text = item.Name,
             FontSize = 15,
             FontWeight = FontWeight.SemiBold,
+            Foreground = ValueText,
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
         ToolTip.SetTip(title, $"{item.Name}\n{item.Id}");
         var group = new TextBlock { Text = item.Group, FontSize = 11, Foreground = Secondary };
 
-        var big = new TextBlock { Text = "auto", FontSize = 30, FontWeight = FontWeight.Bold };
-        var rpmLine = new TextBlock { Text = "", FontSize = 12, Foreground = Secondary };
+        var existingCfg = _app.Settings.Controls.FirstOrDefault(c => c.Id == item.Id);
+        var suppress = false; // checkbox ↔ dropdown mutual updates must not re-enter
+
+        var check = new CheckBox
+        {
+            Content = "Curve",
+            FontSize = 13,
+            IsChecked = existingCfg is { Enabled: true },
+        };
+
+        var mode = new ComboBox { Width = 280, HorizontalAlignment = HorizontalAlignment.Left };
+        PopulateCurveChoices(mode, item);
+
+        var valueLine = new TextBlock
+        {
+            Text = "auto",
+            FontSize = 18,
+            FontWeight = FontWeight.SemiBold,
+            Foreground = ValueText,
+            Margin = new Thickness(0, 2, 0, 0),
+        };
+
         var errorLine = new TextBlock
         {
             Text = "",
@@ -182,109 +213,72 @@ public sealed partial class MainWindow : Window
             IsVisible = false,
         };
 
-        // Assignment model (matches Windows OpenFan): curves are independent named objects —
-        // a graph binds its own sensor — and any number of fans may share one curve.
-        var mode = new ComboBox
+        check.IsCheckedChanged += (_, _) =>
         {
-            HorizontalAlignment = HorizontalAlignment.Left,
-        };
-        PopulateCurveChoices(mode, item);
-
-        var slider = new Slider
-        {
-            Minimum = item.MinPercent,
-            Maximum = 100,
-            Width = 290,
-            HorizontalAlignment = HorizontalAlignment.Left,
-            IsVisible = false,
-        };
-
-        var editCurveBtn = new Button
-        {
-            Content = "Edit curve…",
-            IsVisible = false,
-            HorizontalAlignment = HorizontalAlignment.Left,
-        };
-
-        var existingCfg = _app.Settings.Controls.FirstOrDefault(c => c.Id == item.Id);
-        var assigned = FindAssignedCurve(existingCfg);
-        if (assigned?.Type == "flat")
-        {
-            slider.Value = Math.Clamp(assigned.Percent, item.MinPercent, 100);
-            slider.IsVisible = true;
-        }
-        editCurveBtn.IsVisible = assigned?.Type == "graph";
-
-        editCurveBtn.Click += (_, _) =>
-        {
-            var cur = FindAssignedCurve(FindOrCreateCfg(item));
-            if (cur is not null)
-                OpenGraphEditor(cur);
-        };
-
-        mode.SelectionChanged += (_, _) =>
-        {
+            if (suppress) return;
             var c = FindOrCreateCfg(item);
-            var curveId = (mode.SelectedItem as ComboBoxItem)?.Tag as string;
-            if (curveId is null)
+            if (check.IsChecked == true)
             {
-                c.Enabled = false; // Monitor: FanController restores this control next tick
-                slider.IsVisible = false;
-                editCurveBtn.IsVisible = false;
+                var tag = (mode.SelectedItem as ComboBoxItem)?.Tag as string;
+                if (tag is null)
+                {
+                    suppress = true;
+                    check.IsChecked = false; // nothing to enable until a curve is chosen
+                    suppress = false;
+                    return;
+                }
+                c.CurveId = tag;
+                c.Enabled = true;
             }
             else
             {
-                var curve = _app.Settings.Curves.FirstOrDefault(k => k.Id == curveId);
-                c.CurveId = curveId;
-                c.Enabled = true;
-                slider.IsVisible = curve?.Type == "flat";
-                if (curve?.Type == "flat")
-                    slider.Value = Math.Clamp(curve.Percent, item.MinPercent, 100);
-                editCurveBtn.IsVisible = curve?.Type == "graph";
+                c.Enabled = false; // FanController restores this control next tick
             }
             _app.Save();
             UpdateValues();
         };
 
-        slider.ValueChanged += (_, _) =>
+        mode.SelectionChanged += (_, _) =>
         {
+            if (suppress) return;
             var c = FindOrCreateCfg(item);
-            var curve = FindAssignedCurve(c);
-            if (curve is null || !string.Equals(curve.Type, "flat", StringComparison.OrdinalIgnoreCase))
-                return;
-            curve.Percent = Math.Round(slider.Value); // shared flat: moves every fan using it
+            var curveId = (mode.SelectedItem as ComboBoxItem)?.Tag as string;
+            suppress = true;
+            if (curveId is null)
+            {
+                c.Enabled = false; // Monitor
+                check.IsChecked = false;
+            }
+            else
+            {
+                c.CurveId = curveId;
+                c.Enabled = true;
+                check.IsChecked = true; // picking a curve arms the fan (reference behavior)
+            }
+            suppress = false;
             _app.Save();
+            UpdateValues();
         };
 
         var card = new Border
         {
-            Width = 340,
+            Width = 300,
             Margin = new Thickness(6),
-            Padding = new Thickness(16),
+            Padding = new Thickness(14, 12, 14, 12),
             Background = CardBg,
             BorderBrush = CardBorder,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
             Child = new StackPanel
             {
-                Spacing = 6,
-                Children =
-                {
-                    title,
-                    group,
-                    big,
-                    rpmLine,
-                    errorLine,
-                    mode,
-                    slider,
-                    editCurveBtn,
-                },
+                Spacing = 5,
+                Children = { title, group, check, mode, valueLine, errorLine },
             },
         };
 
         _cards[item.Id] = new CardUi
         {
-            Item = item, BigValue = big, RpmLine = rpmLine, Mode = mode, FlatSlider = slider, ErrorLine = errorLine,
+            Item = item, ValueLine = valueLine, CurveCheck = check, Mode = mode, ErrorLine = errorLine,
         };
         return card;
     }
@@ -296,20 +290,20 @@ public sealed partial class MainWindow : Window
         {
             var cfg = _app.Settings.Controls.FirstOrDefault(c => c.Id == id);
             var commanded = applying && cfg is { Enabled: true } ? _app.CommandedPercent(cfg) : null;
+            var rpm = _app.PairedRpm(card.Item);
 
             if (commanded is double pct)
             {
-                card.BigValue.Text = $"{pct:0} %";
-                card.BigValue.Foreground = Accent;
+                card.ValueLine.Text = rpm is null ? $"{pct:0.#} %" : $"{pct:0.#} %     {rpm:0} RPM";
+                card.ValueLine.Foreground = ValueText;
             }
             else
             {
-                card.BigValue.Text = applying ? "—" : "auto";
-                card.BigValue.Foreground = Secondary;
+                card.ValueLine.Text = rpm is null
+                    ? (applying ? "—" : "auto")
+                    : $"auto     {rpm:0} RPM"; // monitoring still shows real speed
+                card.ValueLine.Foreground = Secondary;
             }
-
-            var rpm = _app.PairedRpm(card.Item);
-            card.RpmLine.Text = rpm is null ? "" : $"{rpm:0} RPM";
 
             // Surface exactly why a control is not moving (spec §3.4: no silent monitor-only).
             if (applying && cfg is { Enabled: true } && _app.HasWriteError(id))
@@ -321,6 +315,11 @@ public sealed partial class MainWindow : Window
             {
                 card.ErrorLine.IsVisible = false;
             }
+        }
+
+        foreach (var update in _curveUpdaters)
+        {
+            try { update(); } catch { /* a stale card mid-rebuild — next tick is fine */ }
         }
 
         UpdateStatus();
@@ -355,6 +354,435 @@ public sealed partial class MainWindow : Window
         StatusNote.Text = string.Join("   ·   ", notes);
     }
 
+    // ---- curve cards (Curves section, reference: OpenFan-mainpage.jpg) ------
+
+    private void RebuildCurveCards()
+    {
+        _curveUpdaters.Clear();
+        var order = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["flat"] = 0, ["graph"] = 1, ["mix"] = 2,
+        };
+        var items = _app.Settings.Curves
+            .OrderBy(c => order.GetValueOrDefault(c.Type, 3))
+            .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(BuildCurveCard)
+            .ToList();
+        CurveCards.ItemsSource = items;
+        CurvesHeader.IsVisible = items.Count > 0;
+    }
+
+    private Control BuildCurveCard(CurveSettings curve)
+    {
+        var body = new StackPanel { Spacing = 5 };
+
+        // Header: type tag + editable name + delete.
+        var nameBox = new TextBox
+        {
+            Text = curve.Name,
+            Classes = { "cardname" },
+        };
+        nameBox.TextChanged += (_, _) =>
+        {
+            if (!string.IsNullOrWhiteSpace(nameBox.Text))
+                curve.Name = nameBox.Text.Trim();
+        };
+        nameBox.LostFocus += (_, _) =>
+        {
+            _app.Save();
+            RebuildCards(); // fan dropdowns show the new name
+        };
+
+        var noteLine = new TextBlock
+        {
+            FontSize = 11,
+            Foreground = Warn,
+            TextWrapping = TextWrapping.Wrap,
+            IsVisible = false,
+        };
+
+        var header = new DockPanel { LastChildFill = true };
+        var delBtn = new Button
+        {
+            Content = "×",
+            Padding = new Thickness(7, 0, 7, 1),
+            Background = null,
+            BorderThickness = new Thickness(0),
+            Foreground = Secondary,
+            FontSize = 15,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        DockPanel.SetDock(delBtn, Dock.Right);
+        header.Children.Add(delBtn);
+        header.Children.Add(new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = curve.Type.ToUpperInvariant(),
+                    FontSize = 9,
+                    Foreground = Secondary,
+                    VerticalAlignment = VerticalAlignment.Center,
+                },
+                nameBox,
+            },
+        });
+
+        delBtn.Click += (_, _) => DeleteCurve(curve, noteLine);
+
+        switch (curve.Type.ToLowerInvariant())
+        {
+            case "flat": BuildFlatBody(curve, body); break;
+            case "mix": BuildMixBody(curve, body); break;
+            default: BuildGraphBody(curve, body); break;
+        }
+
+        body.Children.Add(noteLine);
+
+        return new Border
+        {
+            Width = curve.Type.Equals("mix", StringComparison.OrdinalIgnoreCase) ? 320 : 300,
+            Margin = new Thickness(6),
+            Padding = new Thickness(14, 12, 14, 12),
+            Background = CardBg,
+            BorderBrush = CardBorder,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Child = body,
+        };
+    }
+
+    private void BuildFlatBody(CurveSettings curve, StackPanel body)
+    {
+        body.Children.Add(new TextBlock { Text = "Fan speed", FontSize = 11, Foreground = Secondary });
+
+        var percentText = new TextBlock
+        {
+            Text = $"{curve.Percent:0} %",
+            FontSize = 20,
+            FontWeight = FontWeight.Bold,
+            Foreground = ValueText,
+            VerticalAlignment = VerticalAlignment.Center,
+            MinWidth = 70,
+        };
+
+        void Adjust(double delta)
+        {
+            curve.Percent = Math.Clamp(curve.Percent + delta, 0, 100);
+            percentText.Text = $"{curve.Percent:0} %";
+            _app.Save();
+            UpdateValues();
+        }
+
+        var minus = new Button { Content = "−", Width = 40 };
+        var plus = new Button { Content = "+", Width = 40 };
+        minus.Click += (_, _) => Adjust(-5);
+        plus.Click += (_, _) => Adjust(5);
+
+        body.Children.Add(new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 10,
+            Children = { minus, percentText, plus },
+        });
+    }
+
+    private void BuildGraphBody(CurveSettings curve, StackPanel body)
+    {
+        body.Children.Add(new TextBlock { Text = "Temperature source", FontSize = 11, Foreground = Secondary });
+
+        var sensorBox = new ComboBox { Width = 260, HorizontalAlignment = HorizontalAlignment.Left };
+        var sensorItems = new List<(ComboBoxItem Item, string Id, string BaseLabel)>();
+        foreach (var t in _app.Inventory
+                     .Where(i => i.Kind == HardwareKind.Temperature)
+                     .OrderBy(i => i.Group).ThenBy(i => i.Name))
+        {
+            var item = new ComboBoxItem { Tag = t.Id };
+            sensorBox.Items.Add(item);
+            sensorItems.Add((item, t.Id, $"{t.Name}  ·  {t.Group}"));
+        }
+        sensorBox.SelectedItem = sensorItems
+            .FirstOrDefault(s => s.Id == curve.SensorId).Item;
+
+        var suppress = false;
+        sensorBox.SelectionChanged += (_, _) =>
+        {
+            if (suppress) return;
+            curve.SensorId = (sensorBox.SelectedItem as ComboBoxItem)?.Tag as string;
+            _app.Save();
+        };
+
+        var outputText = new TextBlock
+        {
+            Text = "—",
+            FontSize = 24,
+            FontWeight = FontWeight.Bold,
+            Foreground = ValueText,
+        };
+
+        var editBtn = new Button
+        {
+            Content = "Edit",
+            Background = null,
+            BorderThickness = new Thickness(0),
+            Foreground = Accent,
+            FontWeight = FontWeight.SemiBold,
+            VerticalAlignment = VerticalAlignment.Bottom,
+        };
+        editBtn.Click += (_, _) => OpenGraphEditor(curve);
+
+        var outRow = new DockPanel { LastChildFill = true };
+        DockPanel.SetDock(editBtn, Dock.Right);
+        outRow.Children.Add(editBtn);
+        outRow.Children.Add(outputText);
+
+        var preview = new Canvas { Height = 60, ClipToBounds = true };
+
+        body.Children.Add(sensorBox);
+        body.Children.Add(outRow);
+        body.Children.Add(preview);
+
+        _curveUpdaters.Add(() =>
+        {
+            foreach (var (item, id, baseLabel) in sensorItems)
+            {
+                var r = _app.Reading(id);
+                item.Content = r is null ? baseLabel : $"{baseLabel}   —   {r:0.#} °C";
+            }
+
+            // keep the combo's own label live too (shows selected sensor + reading when closed)
+            if (sensorBox.SelectedItem is ComboBoxItem sel && sel.Tag is string selId)
+            {
+                var r = _app.Reading(selId);
+                if (r is not null)
+                    sel.Content = $"{(selItemsBase(sensorItems, selId) ?? "sensor")}   —   {r:0.#} °C";
+            }
+
+            var temp = curve.SensorId is null ? null : _app.Reading(curve.SensorId);
+            outputText.Text = _app.CurveOutput(curve.Id) is double o ? $"{o:0.#} %" : "—";
+            DrawMiniPreview(preview, curve, temp);
+        });
+    }
+
+    private static string? selItemsBase(List<(ComboBoxItem Item, string Id, string BaseLabel)> items, string id)
+        => items.FirstOrDefault(s => s.Id == id).BaseLabel;
+
+    private void BuildMixBody(CurveSettings curve, StackPanel body)
+    {
+        body.Children.Add(new TextBlock { Text = "Function", FontSize = 11, Foreground = Secondary });
+
+        var funcBox = new ComboBox { Width = 200, HorizontalAlignment = HorizontalAlignment.Left };
+        foreach (var fi in new[]
+                 {
+                     new ComboBoxItem { Content = "Max", Tag = "max" },
+                     new ComboBoxItem { Content = "Min", Tag = "min" },
+                     new ComboBoxItem { Content = "Average", Tag = "average" },
+                 })
+        {
+            funcBox.Items.Add(fi);
+        }
+        funcBox.SelectedItem = funcBox.Items.OfType<ComboBoxItem>()
+            .FirstOrDefault(i => string.Equals((string?)i.Tag, curve.Function, StringComparison.OrdinalIgnoreCase))
+            ?? funcBox.Items[0];
+        funcBox.SelectionChanged += (_, _) =>
+        {
+            curve.Function = (funcBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "max";
+            _app.Save();
+            UpdateValues();
+        };
+
+        var childList = new StackPanel { Spacing = 3 };
+
+        void RebuildChildren()
+        {
+            childList.Children.Clear();
+            foreach (var childId in curve.ChildCurveIds.ToList())
+            {
+                var childName = _app.Settings.Curves
+                    .FirstOrDefault(c => c.Id == childId)?.Name ?? childId;
+                var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+                row.Children.Add(new TextBlock
+                {
+                    Text = "●",
+                    FontSize = 8,
+                    Foreground = Accent,
+                    VerticalAlignment = VerticalAlignment.Center,
+                });
+                row.Children.Add(new TextBlock
+                {
+                    Text = childName,
+                    FontSize = 13,
+                    Foreground = ValueText,
+                    VerticalAlignment = VerticalAlignment.Center,
+                });
+                var removeBtn = new Button
+                {
+                    Content = "×",
+                    Background = null,
+                    BorderThickness = new Thickness(0),
+                    Foreground = Secondary,
+                    Padding = new Thickness(5, 0, 5, 0),
+                };
+                removeBtn.Click += (_, _) =>
+                {
+                    curve.ChildCurveIds.Remove(childId);
+                    _app.Save();
+                    RebuildChildren();
+                    UpdateValues();
+                };
+                row.Children.Add(removeBtn);
+                childList.Children.Add(row);
+            }
+        }
+
+        var addBox = new ComboBox
+        {
+            Width = 260,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            PlaceholderText = "Add fan curve",
+        };
+
+        void RebuildAddChoices()
+        {
+            addBox.ItemsSource = _app.Settings.Curves
+                .Where(c => c.Id != curve.Id
+                            && !c.Type.Equals("mix", StringComparison.OrdinalIgnoreCase) // no mix-in-mix cycles
+                            && !curve.ChildCurveIds.Contains(c.Id))
+                .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(c => (object)new ComboBoxItem { Content = c.Name, Tag = c.Id })
+                .ToList();
+        }
+
+        var suppressAdd = false;
+        addBox.SelectionChanged += (_, _) =>
+        {
+            if (suppressAdd) return;
+            if ((addBox.SelectedItem as ComboBoxItem)?.Tag is string childId)
+            {
+                curve.ChildCurveIds.Add(childId);
+                _app.Save();
+                RebuildChildren();
+                RebuildAddChoices();
+                suppressAdd = true;
+                addBox.SelectedItem = null;
+                suppressAdd = false;
+                UpdateValues();
+            }
+        };
+
+        var outputText = new TextBlock
+        {
+            Text = "—",
+            FontSize = 24,
+            FontWeight = FontWeight.Bold,
+            Foreground = ValueText,
+            Margin = new Thickness(0, 4, 0, 0),
+        };
+
+        body.Children.Add(funcBox);
+        body.Children.Add(addBox);
+        body.Children.Add(childList);
+        body.Children.Add(outputText);
+
+        RebuildChildren();
+        RebuildAddChoices();
+
+        _curveUpdaters.Add(() =>
+            outputText.Text = _app.CurveOutput(curve.Id) is double o ? $"{o:0.#} %" : "—");
+    }
+
+    /// <summary>Mini curve preview like the Windows cards: white line, orange fill, live dot.</summary>
+    private static void DrawMiniPreview(Canvas canvas, CurveSettings curve, double? currentTemp)
+    {
+        canvas.Children.Clear();
+        var w = Math.Max(canvas.Bounds.Width, 40);
+        var h = Math.Max(canvas.Height, 20);
+        const double pad = 3;
+        var tMin = curve.MinTempC;
+        var tMax = Math.Max(curve.MinTempC + 10, curve.MaxTempC);
+
+        double X(double t) => pad + (t - tMin) / (tMax - tMin) * (w - 2 * pad);
+        double Y(double p) => h - pad - p / 100.0 * (h - 2 * pad);
+
+        var ordered = curve.Points.OrderBy(p => p.TempC).ToList();
+        if (ordered.Count < 2)
+            return;
+
+        var areaPoints = new Avalonia.Collections.AvaloniaList<Avalonia.Point>(
+            ordered.Select(p => new Avalonia.Point(X(p.TempC), Y(p.Percent))));
+        areaPoints.Add(new Avalonia.Point(X(ordered[^1].TempC), Y(0)));
+        areaPoints.Add(new Avalonia.Point(X(ordered[0].TempC), Y(0)));
+        canvas.Children.Add(new Polygon { Fill = AreaFill, Points = areaPoints });
+
+        canvas.Children.Add(new Polyline
+        {
+            Stroke = Brushes.White,
+            StrokeThickness = 1.5,
+            Points = new Avalonia.Collections.AvaloniaList<Avalonia.Point>(
+                ordered.Select(p => new Avalonia.Point(X(p.TempC), Y(p.Percent)))),
+        });
+
+        if (currentTemp is double t && t >= tMin && t <= tMax)
+        {
+            var pts = ordered.Select(q => new CurvePoint(q.TempC, q.Percent)).ToList();
+            var pct = GraphCurve.Evaluate(pts, t, maxSpeed: Math.Clamp(curve.MaxSpeedPercent, 0, 100));
+            var dot = new Ellipse { Width = 7, Height = 7, Fill = Accent };
+            canvas.Children.Add(dot);
+            Canvas.SetLeft(dot, X(t) - 3.5);
+            Canvas.SetTop(dot, Y(pct) - 3.5);
+        }
+    }
+
+    // ---- curve lifecycle ----------------------------------------------------
+
+    private int CurveUsage(CurveSettings curve) =>
+        _app.Settings.Controls.Count(c =>
+            c.Enabled && string.Equals(c.CurveId, curve.Id, StringComparison.OrdinalIgnoreCase));
+
+    private void CreateCurve(string type)
+    {
+        var curve = new CurveSettings
+        {
+            Id = $"curve-{Guid.NewGuid():N}",
+            Type = type,
+            Name = type switch { "graph" => "New graph", "mix" => "New mix", _ => "New flat" },
+        };
+        if (type == "graph")
+            curve.Points = [new CurvePointDto(40, 20), new CurvePointDto(85, 90)];
+        else if (type == "flat")
+            curve.Percent = 50;
+        else
+            curve.Function = "max";
+
+        _app.Settings.Curves.Add(curve);
+        _app.Save();
+        RebuildCurveCards();
+        RebuildCards(); // new curve appears in fan dropdowns
+
+        if (type == "graph")
+            OpenGraphEditor(curve); // pick sensor + shape right away
+    }
+
+    private void DeleteCurve(CurveSettings curve, TextBlock noteLine)
+    {
+        var used = CurveUsage(curve);
+        if (used > 0)
+        {
+            noteLine.Text = $"In use by {used} fan(s) — switch them first.";
+            noteLine.IsVisible = true;
+            return;
+        }
+        _app.Settings.Curves.Remove(curve);
+        _app.Save();
+        RebuildCurveCards();
+        RebuildCards();
+    }
+
+    // ---- shared helpers -----------------------------------------------------
+
     private ControlSettings FindOrCreateCfg(HardwareItem item)
     {
         var cfg = _app.Settings.Controls.FirstOrDefault(c => c.Id == item.Id);
@@ -371,7 +799,7 @@ public sealed partial class MainWindow : Window
         var cfg = _app.Settings.Controls.FirstOrDefault(c => c.Id == item.Id);
         var items = new List<ComboBoxItem> { new() { Content = "Monitor", Tag = null } };
         foreach (var curve in _app.Settings.Curves.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase))
-            items.Add(new ComboBoxItem { Content = $"{curve.Name}  ({curve.Type})", Tag = curve.Id });
+            items.Add(new ComboBoxItem { Content = curve.Name, Tag = curve.Id });
         mode.ItemsSource = items;
         mode.SelectedItem = cfg is { Enabled: true }
             ? items.FirstOrDefault(i => (string?)i.Tag == cfg.CurveId) ?? items[0]
@@ -392,9 +820,10 @@ public sealed partial class MainWindow : Window
             curves.RemoveAll(c => c.Id == edited.Id);
             curves.Add(edited);
             _app.Save();
+            RebuildCurveCards();
+            RebuildCards();
             UpdateValues();
         });
         editor.Show(this);
     }
-
 }

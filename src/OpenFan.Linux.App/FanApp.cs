@@ -111,6 +111,13 @@ public sealed class FanApp : IDisposable
     /// <summary>One-open check: does this session actually have PWM write access?</summary>
     public string? StartupWriteProbe() => Hwmon.ProbeWriteAccess();
 
+    /// <summary>Live output of any library curve against the latest readings (curve cards).</summary>
+    public double? CurveOutput(string curveId)
+    {
+        var curve = Settings.Curves.FirstOrDefault(c => c.Id == curveId);
+        return curve is null ? null : FanController.Evaluate(curve, Settings.Curves, _readings);
+    }
+
     public void Save() => Store.Save(Settings);
 
     /// <summary>Exit / Apply-off path: give every owned control back to auto.</summary>

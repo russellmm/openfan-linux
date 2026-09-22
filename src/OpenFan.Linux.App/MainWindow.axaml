@@ -35,23 +35,52 @@
                    Foreground="{StaticResource TextSecondary}" FontSize="13" />
       </Grid>
 
-      <!-- Home: apply bar + fan cards -->
+      <!-- Home: apply bar + Controls + Curves sections (reference: OpenFan-mainpage.jpg) -->
       <DockPanel x:Name="HomePanel" Grid.Row="1" Grid.RowSpan="2">
-        <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,Auto,*" Margin="0,4,0,14">
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*" Margin="0,4,0,12">
           <CheckBox x:Name="ApplyCurvesBox" Content="Apply curves" VerticalAlignment="Center" FontSize="14" />
-          <Button x:Name="ManageCurvesBtn" Grid.Column="1" Content="Manage curves…" Margin="18,0,0,0" Height="32" />
-          <TextBlock x:Name="StatusNote" Grid.Column="2" Margin="20,0,0,0"
+          <TextBlock x:Name="StatusNote" Grid.Column="1" Margin="20,0,0,0"
                      VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}" />
         </Grid>
-        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-          <ItemsControl x:Name="Cards">
-            <ItemsControl.ItemsPanel>
-              <ItemsPanelTemplate>
-                <WrapPanel Orientation="Horizontal" />
-              </ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-          </ItemsControl>
-        </ScrollViewer>
+
+        <Grid>
+          <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+            <StackPanel>
+              <TextBlock Text="Controls" FontSize="16" FontWeight="SemiBold" Foreground="#E8EDF0" Margin="6,0,0,2" />
+              <ItemsControl x:Name="Cards">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <WrapPanel Orientation="Horizontal" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+              </ItemsControl>
+
+              <TextBlock x:Name="CurvesHeader" Text="Curves" FontSize="16" FontWeight="SemiBold"
+                         Foreground="#E8EDF0" Margin="6,20,0,2" IsVisible="False" />
+              <ItemsControl x:Name="CurveCards" Margin="0,0,0,100">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <WrapPanel Orientation="Horizontal" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+              </ItemsControl>
+            </StackPanel>
+          </ScrollViewer>
+
+          <!-- Create-curve FABs (reference: bottom-right of Home) -->
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                      Spacing="12" Margin="0,0,18,18">
+            <Button x:Name="NewFlatFab" Classes="fab">
+              <TextBlock TextAlignment="Center"><Run FontSize="15" Text="—"/><LineBreak/><Run FontSize="11" Text="Flat"/></TextBlock>
+            </Button>
+            <Button x:Name="NewGraphFab" Classes="fab">
+              <TextBlock TextAlignment="Center"><Run FontSize="15" Text="∿"/><LineBreak/><Run FontSize="11" Text="Graph"/></TextBlock>
+            </Button>
+            <Button x:Name="NewMixFab" Classes="fab">
+              <TextBlock TextAlignment="Center"><Run FontSize="15" Text="×+"/><LineBreak/><Run FontSize="11" Text="Mix"/></TextBlock>
+            </Button>
+          </StackPanel>
+        </Grid>
       </DockPanel>
 
       <!-- GPUs: per-card detail panels (populated in code) -->
