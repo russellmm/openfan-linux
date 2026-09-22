@@ -590,7 +590,20 @@ public sealed partial class MainWindow : Window
         }
         var suppress = false;
         int WantedIndex() => sensorItems.FindIndex(s => s.Id == curve.SensorId);
-        sensorBox.SelectedIndex = WantedIndex();
+
+        void ApplySelection()
+        {
+            var want = WantedIndex();
+            // Force through -1 so a stale (blank) selection box rebuilds.
+            suppress = true;
+            sensorBox.SelectedIndex = -1;
+            sensorBox.SelectedIndex = want;
+            suppress = false;
+        }
+
+        ApplySelection();
+        // Code-created ComboBoxes drop pre-attach selection — re-assert once in the tree.
+        sensorBox.AttachedToVisualTree += (_, _) => ApplySelection();
 
         sensorBox.SelectionChanged += (_, _) =>
         {
@@ -640,14 +653,10 @@ public sealed partial class MainWindow : Window
 
         _curveUpdaters.Add(() =>
         {
-            // Re-assert the bound sensor if anything ever cleared the combo (belt & braces).
+            // Re-assert the bound sensor if anything cleared or failed to render the combo.
             var want = WantedIndex();
-            if (want >= 0 && sensorBox.SelectedIndex != want)
-            {
-                suppress = true;
-                sensorBox.SelectedIndex = want;
-                suppress = false;
-            }
+            if (want >= 0 && (sensorBox.SelectedIndex != want || sensorBox.SelectedItem is null))
+                ApplySelection();
 
             foreach (var (item, id, baseLabel) in sensorItems)
             {
@@ -985,9 +994,18 @@ public sealed partial class MainWindow : Window
         foreach (var curve in _app.Settings.Curves.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase))
             items.Add(new ComboBoxItem { Content = curve.Name, Tag = curve.Id });
         mode.ItemsSource = items;
-        mode.SelectedItem = cfg is { Enabled: true }
-            ? items.FirstOrDefault(i => (string?)i.Tag == cfg.CurveId) ?? items[0]
-            : items[0];
+
+        void ApplySelection()
+        {
+            var want = cfg is { Enabled: true }
+                ? items.FirstOrDefault(i => (string?)i.Tag == cfg.CurveId) ?? items[0]
+                : items[0];
+            if (!ReferenceEquals(mode.SelectedItem, want))
+                mode.SelectedItem = want;
+        }
+
+        ApplySelection();
+        mode.AttachedToVisualTree += (_, _) => ApplySelection(); // pre-attach selection is dropped
     }
 
     private CurveSettings? FindAssignedCurve(ControlSettings? cfg) =>
