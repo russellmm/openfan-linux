@@ -10,6 +10,9 @@ public sealed class AppSettings
     public bool StartMinimized { get; set; }
     public bool ApplyCurves { get; set; }
 
+    /// <summary>Friendly display names for sensors, keyed by sensor id. Empty/absent = hardware name.</summary>
+    public Dictionary<string, string> SensorAliases { get; set; } = [];
+
     /// <summary>GPU power limits in watts keyed by NVML uuid; re-applied at startup via helper.</summary>
     public Dictionary<string, int> GpuPowerLimitsW { get; set; } = [];
 

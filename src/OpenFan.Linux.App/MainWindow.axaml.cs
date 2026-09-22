@@ -51,10 +51,11 @@ public sealed partial class MainWindow : Window
 
         ToolTip.SetTip(NavHome, "Ctrl+1");
         ToolTip.SetTip(NavGpus, "Ctrl+2");
-        ToolTip.SetTip(NavTheme, "Ctrl+3");
-        ToolTip.SetTip(NavTray, "Ctrl+4");
-        ToolTip.SetTip(NavSettings, "Ctrl+5");
-        ToolTip.SetTip(NavAbout, "Ctrl+6");
+        ToolTip.SetTip(NavSensors, "Ctrl+3");
+        ToolTip.SetTip(NavTheme, "Ctrl+4");
+        ToolTip.SetTip(NavTray, "Ctrl+5");
+        ToolTip.SetTip(NavSettings, "Ctrl+6");
+        ToolTip.SetTip(NavAbout, "Ctrl+7");
 
         RefreshBtn.Click += (_, _) => _app.RefreshInventory(force: true);
         ExitBtn.Click += (_, _) =>
@@ -71,6 +72,7 @@ public sealed partial class MainWindow : Window
 
         NavHome.Checked += (_, _) => ShowPage("home");
         NavGpus.Checked += (_, _) => ShowPage("gpus");
+        NavSensors.Checked += (_, _) => ShowPage("sensors");
         NavTheme.Checked += (_, _) => ShowPage("theme");
         NavTray.Checked += (_, _) => ShowPage("tray");
         NavSettings.Checked += (_, _) => ShowPage("settings");
@@ -82,6 +84,8 @@ public sealed partial class MainWindow : Window
         {
             RebuildCards();
             RebuildCurveCards();
+            InvalidateGpuPage();
+            _sensorsPageBuilt = false;
         };
         _app.Ticked += UpdateValues;
         RebuildCards();
@@ -103,11 +107,13 @@ public sealed partial class MainWindow : Window
     {
         HomePanel.IsVisible = page == "home";
         GpusPanel.IsVisible = page == "gpus";
-        StubPage.IsVisible = page is not ("home" or "gpus");
+        SensorsPanel.IsVisible = page == "sensors";
+        StubPage.IsVisible = page is not ("home" or "gpus" or "sensors");
 
         (PageTitle.Text, PageSubtitle.Text) = page switch
         {
             "gpus" => ("GPUs", GpuSubtitle()),
+            "sensors" => ("Sensors", SensorsSubtitle()),
             "theme" => ("Theme", ""),
             "tray" => ("Tray", ""),
             "settings" => ("Settings", ""),
@@ -126,6 +132,8 @@ public sealed partial class MainWindow : Window
 
         if (page == "gpus")
             EnsureGpuPage();
+        if (page == "sensors")
+            EnsureSensorsPage();
     }
 
     // ---- GPUs page -----------------------------------------------------------
@@ -365,6 +373,144 @@ public sealed partial class MainWindow : Window
         };
     }
 
+    // ---- Sensors page --------------------------------------------------------
+
+    private bool _sensorsPageBuilt;
+    private readonly List<(string Id, Action<double?> Update)> _sensorValueUpdaters = [];
+
+    private string SensorsSubtitle()
+    {
+        var count = _app.Inventory.Count(i => i.Kind is HardwareKind.Temperature or HardwareKind.Tach);
+        return $"{count} sensors · click a name to rename it";
+    }
+
+    /// <summary>Coarse grouping for the Sensors page, from the hwmon chip / backend.</summary>
+    private static string SensorGroup(HardwareItem item)
+    {
+        if (item.Id.StartsWith("nvml:", StringComparison.OrdinalIgnoreCase))
+            return "GPU";
+        var parts = item.Id.Split(':');
+        var chip = parts.Length > 1 ? parts[1] : "";
+        return chip switch
+        {
+            "k10temp" => "CPU",
+            "nct6799" or "nct6775" or "nct6798" or "nct6796" or "it87" => "Motherboard",
+            "asusec" => "Chipset / ASUS EC",
+            "nvme" => "Storage (NVMe)",
+            "amd_hsmp_hwmon" => "AMD HSMP (SoC)",
+            _ when chip.StartsWith("enp", StringComparison.OrdinalIgnoreCase)
+                || chip.StartsWith("eth", StringComparison.OrdinalIgnoreCase) => "Network",
+            _ => "Other",
+        };
+    }
+
+    private static readonly string[] GroupOrder =
+        ["CPU", "GPU", "Motherboard", "Chipset / ASUS EC", "AMD HSMP (SoC)", "Storage (NVMe)", "Network", "Other"];
+
+    private void EnsureSensorsPage()
+    {
+        if (_sensorsPageBuilt)
+            return;
+        _sensorsPageBuilt = true;
+        SensorsContent.Children.Clear();
+        _sensorValueUpdaters.Clear();
+
+        var sensors = _app.Inventory
+            .Where(i => i.Kind is HardwareKind.Temperature or HardwareKind.Tach)
+            .GroupBy(SensorGroup)
+            .OrderBy(g => Array.IndexOf(GroupOrder, g.Key) is var ix && ix >= 0 ? ix : 99);
+
+        foreach (var group in sensors)
+        {
+            SensorsContent.Children.Add(new TextBlock
+            {
+                Text = group.Key,
+                Foreground = Secondary,
+                FontSize = 13,
+                FontWeight = FontWeight.SemiBold,
+                Margin = new Thickness(2, 0, 0, 0),
+            });
+
+            var rows = new StackPanel();
+            foreach (var item in group.OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase))
+                rows.Children.Add(BuildSensorRow(item));
+
+            SensorsContent.Children.Add(new Border
+            {
+                Background = CardBg,
+                BorderBrush = CardBorder,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(14, 8, 14, 8),
+                Child = rows,
+            });
+        }
+    }
+
+    private Control BuildSensorRow(HardwareItem item)
+    {
+        var original = item.Name;
+        var valueText = new TextBlock
+        {
+            MinWidth = 96,
+            TextAlignment = TextAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 14,
+            FontWeight = FontWeight.Bold,
+            Foreground = ValueText,
+        };
+
+        // Quiet affordance again: the name is a borderless textbox; tooltip keeps the hardware truth.
+        var nameBox = new TextBox
+        {
+            Text = _app.SensorLabel(item),
+            Classes = { "cardname" },
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        ToolTip.SetTip(nameBox, $"{original}\n{item.Group}\n{item.Id}");
+
+        nameBox.LostFocus += (_, _) =>
+        {
+            var text = (nameBox.Text ?? "").Trim();
+            if (text.Length == 0 || text == original)
+            {
+                _app.Settings.SensorAliases.Remove(item.Id);
+                nameBox.Text = original;
+            }
+            else
+            {
+                _app.Settings.SensorAliases[item.Id] = text;
+            }
+            _app.Save();
+            RebuildCurveCards(); // dropdowns across the app pick up the new friendly name
+        };
+        nameBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+                TopLevel.GetTopLevel(nameBox)?.FocusManager?.ClearFocus();
+        };
+
+        _sensorValueUpdaters.Add((item.Id, v =>
+            valueText.Text = v is null
+                ? "—"
+                : item.Kind == HardwareKind.Tach ? $"{v:0} RPM" : $"{v:0.#} °C"));
+
+        return new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+            Margin = new Thickness(0, 3, 0, 3),
+            Children = { nameBox, Col(valueText, 1) },
+        };
+    }
+
+    private void UpdateSensorsPage()
+    {
+        if (!_sensorsPageBuilt || !SensorsPanel.IsVisible)
+            return;
+        foreach (var (id, update) in _sensorValueUpdaters)
+            try { update(_app.Reading(id)); } catch { /* stale row */ }
+    }
+
     private void UpdateGpuPage()
     {
         if (!_gpuPageBuilt || !GpusPanel.IsVisible)
@@ -444,10 +590,11 @@ public sealed partial class MainWindow : Window
             {
                 Key.D1 or Key.NumPad1 => NavHome,
                 Key.D2 or Key.NumPad2 => NavGpus,
-                Key.D3 or Key.NumPad3 => NavTheme,
-                Key.D4 or Key.NumPad4 => NavTray,
-                Key.D5 or Key.NumPad5 => NavSettings,
-                Key.D6 or Key.NumPad6 => NavAbout,
+                Key.D3 or Key.NumPad3 => NavSensors,
+                Key.D4 or Key.NumPad4 => NavTheme,
+                Key.D5 or Key.NumPad5 => NavTray,
+                Key.D6 or Key.NumPad6 => NavSettings,
+                Key.D7 or Key.NumPad7 => NavAbout,
                 _ => null,
             };
             if (target is not null)
@@ -712,6 +859,7 @@ public sealed partial class MainWindow : Window
         }
 
         UpdateGpuPage();
+        UpdateSensorsPage();
         UpdateStatus();
     }
 
@@ -919,7 +1067,7 @@ public sealed partial class MainWindow : Window
         {
             var item = new ComboBoxItem { Tag = t.Id };
             sensorBox.Items.Add(item);
-            sensorItems.Add((item, t.Id, $"{t.Name}  ·  {t.Group}"));
+            sensorItems.Add((item, t.Id, $"{_app.SensorLabel(t)}  ·  {t.Group}"));
         }
         var suppress = false;
         int WantedIndex() => sensorItems.FindIndex(s => s.Id == curve.SensorId);

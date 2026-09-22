@@ -82,6 +82,10 @@ public sealed class FanApp : IDisposable
 
     /// <summary>Tach paired with a control for display: nvml fan0↔tach0, hwmon pwm4↔fan4.</summary>
     /// <summary>Id of the tach paired with a fan control (nvml:{uuid}:tach:n / hwmon …:fan:n).</summary>
+    /// <summary>Display name for a sensor: user alias when set, hardware name otherwise.</summary>
+    public string SensorLabel(HardwareItem item) =>
+        Settings.SensorAliases.GetValueOrDefault(item.Id, item.Name);
+
     public string PairedTachId(HardwareItem control) =>
         control.Backend.Equals("nvml", StringComparison.OrdinalIgnoreCase)
             ? control.Id.Replace(":fan:", ":tach:")
