@@ -310,8 +310,8 @@ On the intended Ubuntu machine:
 
 - [x] `uname -r`, NVIDIA driver version, `nvidia-smi`
 - [x] `ls /sys/class/hwmon/*/name` and for each: temp/fan/pwm files
-- [ ] Can a non-root user write `pwm1` after a one-off `chmod`?
-- [ ] NVML: small C# or Python `nvmlInit` + fan count + set 30% on one PRO fan, restore default
+- [x] Can a non-root user write `pwm1` after a one-off `chmod`? — solved via udev ACL group `openfan` (99-openfan-pwm.rules)
+- [x] NVML spike done — writes via root helper service (socket /run/openfan/helper.sock), reads in-process; RPM tach NOT supported by driver 595
 - [x] k10temp: which temp labels exist (Tctl, CCD?)
 - [x] NCT6701D: present or not
 
@@ -348,7 +348,7 @@ On the intended Ubuntu machine:
 - [x] Dark window, Home cards — nav rail + page header + orange/slate palette matched to screenshots/ 2026-09-22;
 cards assign **library curves by name** (Monitor | curve…) — one curve shared across fans, graph binds its own sensor
 - [x] Apply checkbox, tray, single-instance, Exit restore — user-verified on target 2026-09-21
-- [ ] Graph editor ✓ (canvas add/drag, sensor, hysteresis, max-speed), calibrate, hide, drag-reorder
+- [ ] Graph editor ✓ (canvas add/drag, sensor, hysteresis, max-speed), calibrate ✓ 2026-09-22 (Manual Fan Calibration window; GPUs excluded — no tach), hide, drag-reorder pending
 - [ ] Settings, Theme accent, About (versions + Check for OpenFan updates via GitHub)
 
 **Checkpoint:** daily-driver usable on GPU fans; board fans if Phase 0 allowed.
@@ -375,7 +375,7 @@ cards assign **library curves by name** (Monitor | curve…) — one curve share
 
 ### Phase 0
 - [x] Task 0.1: hwmon inventory spike notes
-- [ ] Task 0.2: NVML fan set/restore spike
+- [x] Task 0.2: NVML fan set/restore spike — helper service live, restore-on-disconnect verified
 - [x] Task 0.3: Go/no-go on motherboard PWM for v1
 
 ### Phase 1
@@ -397,7 +397,7 @@ cards assign **library curves by name** (Monitor | curve…) — one curve share
 ### Phase 4
 - [ ] Task 4.1: Avalonia app shell + tray + apply
 - [ ] Task 4.2: Control + curve cards
-- [ ] Task 4.3: Graph editor ✓ 2026-09-21 (Graph mode on cards auto-opens editor; live edits applied next tick) + calibrate
+- [x] Task 4.3: Graph editor ✓ 2026-09-21 + Manual Fan Calibration ✓ 2026-09-22 (slider handover, auto sweep, avoid zones, validation)
 - [ ] Task 4.4: Settings / Theme / About
 
 ### Phase 5
