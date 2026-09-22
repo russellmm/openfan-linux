@@ -574,11 +574,15 @@ public sealed partial class MainWindow : Window
         // on this driver, so their commanded % is taken at face value).
         var links = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
         var tachId = _app.PairedTachId(item);
-        if (_app.Inventory.Any(i => i.Id == tachId))
+        // GPU fans keep tach items in inventory but NVML reports no RPM on driver 595 —
+        // calibration needs real speed feedback, so require an actual reading for nvml controls.
+        var tachWorks = _app.Inventory.Any(i => i.Id == tachId)
+            && (!item.Id.StartsWith("nvml:", StringComparison.OrdinalIgnoreCase) || _app.Reading(tachId) is not null);
+        if (tachWorks)
         {
             var calLink = new Button
             {
-                Content = string.IsNullOrWhiteSpace(existingCfg?.Name) ? "Calibrate" : $"Calibrate {existingCfg!.Name}",
+                Content = "Calibrate",
                 Background = null,
                 BorderThickness = new Thickness(0),
                 Padding = new Thickness(0),
