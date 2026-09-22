@@ -56,7 +56,7 @@
         </Grid>
 
         <Grid>
-          <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+          <ScrollViewer x:Name="HomeScroll" HorizontalScrollBarVisibility="Disabled">
             <StackPanel>
               <TextBlock Text="Controls" FontSize="16" FontWeight="SemiBold" Foreground="#E8EDF0" Margin="6,0,0,2" />
               <ItemsControl x:Name="Cards">

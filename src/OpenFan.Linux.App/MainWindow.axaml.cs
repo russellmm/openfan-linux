@@ -584,6 +584,22 @@ public sealed partial class MainWindow : Window
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
+        // PageUp/PageDown scroll whichever page is showing, regardless of child focus.
+        if (e.KeyModifiers == KeyModifiers.None && e.Key is Key.PageUp or Key.PageDown)
+        {
+            ScrollViewer? sv = SensorsPanel.IsVisible ? SensorsPanel
+                : GpusPanel.IsVisible ? GpusPanel
+                : HomePanel.IsVisible ? HomeScroll : null;
+            if (sv is not null && sv.Extent.Height > sv.Viewport.Height)
+            {
+                double dy = sv.Viewport.Height * 0.85 * (e.Key == Key.PageDown ? 1 : -1);
+                sv.Offset = new Vector(sv.Offset.X,
+                    Math.Clamp(sv.Offset.Y + dy, 0, sv.Extent.Height - sv.Viewport.Height));
+                e.Handled = true;
+                return;
+            }
+        }
+
         if (e.KeyModifiers == KeyModifiers.Control)
         {
             RadioButton? target = e.Key switch
