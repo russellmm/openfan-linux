@@ -4,6 +4,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
+using OpenFan.Core.Curves;
 using OpenFan.Core.Config;
 using OpenFan.Core.Hardware;
 
@@ -109,7 +110,7 @@ public sealed partial class MainWindow : Window
 
         var mode = new ComboBox
         {
-            ItemsSource = new[] { "Monitor", "Flat" },
+            ItemsSource = new[] { "Monitor", "Flat", "Graph" },
             HorizontalAlignment = HorizontalAlignment.Left,
         };
         var slider = new Slider
@@ -121,28 +122,61 @@ public sealed partial class MainWindow : Window
             IsVisible = false,
         };
 
+        var editGraphBtn = new Button
+        {
+            Content = "Edit graph…",
+            IsVisible = false,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+
         // Initial state from settings — read-only lookup; entries are created on first user edit.
         var existingCfg = _app.Settings.Controls.FirstOrDefault(c => c.Id == item.Id);
         var existingFlat = _app.Settings.Curves.FirstOrDefault(c => c.Id == CurveIdFor(item.Id));
-        mode.SelectedItem = existingCfg is { Enabled: true } ? "Flat" : "Monitor";
+        var initialMode = existingCfg is not { Enabled: true }
+            ? "Monitor"
+            : existingCfg.CurveId?.StartsWith("graph:", StringComparison.OrdinalIgnoreCase) == true
+                ? "Graph"
+                : "Flat";
+        mode.SelectedItem = initialMode;
         slider.Value = Math.Clamp(existingFlat?.Percent ?? 50, item.MinPercent, 100);
-        slider.IsVisible = existingCfg is { Enabled: true };
+        slider.IsVisible = initialMode == "Flat";
+        editGraphBtn.IsVisible = initialMode == "Graph";
+
+        editGraphBtn.Click += (_, _) =>
+        {
+            var curve = GetOrCreateGraphCurve(item.Id);
+            new GraphEditorWindow(_app, curve).Show(this);
+        };
 
         mode.SelectionChanged += (_, _) =>
         {
             var c = FindOrCreateCfg(item);
-            if ((string?)mode.SelectedItem == "Flat")
+            switch ((string?)mode.SelectedItem)
             {
-                var curve = GetOrCreateFlatCurve(item.Id);
-                curve.Percent = Math.Clamp(slider.Value, item.MinPercent, 100);
-                c.CurveId = CurveIdFor(item.Id);
-                c.Enabled = true;
-                slider.IsVisible = true;
-            }
-            else
-            {
-                c.Enabled = false; // FanController restores this control next tick
-                slider.IsVisible = false;
+                case "Flat":
+                    var flat = GetOrCreateFlatCurve(item.Id);
+                    flat.Percent = Math.Clamp(slider.Value, item.MinPercent, 100);
+                    c.CurveId = CurveIdFor(item.Id);
+                    c.Enabled = true;
+                    slider.IsVisible = true;
+                    editGraphBtn.IsVisible = false;
+                    break;
+
+                case "Graph":
+                    var graph = GetOrCreateGraphCurve(item.Id);
+                    c.CurveId = GraphCurveIdFor(item.Id);
+                    c.Enabled = true;
+                    slider.IsVisible = false;
+                    editGraphBtn.IsVisible = true;
+                    if (graph.SensorId is null)
+                        new GraphEditorWindow(_app, graph).Show(this);
+                    break;
+
+                default: // Monitor
+                    c.Enabled = false; // FanController restores this control next tick
+                    slider.IsVisible = false;
+                    editGraphBtn.IsVisible = false;
+                    break;
             }
             _app.Save();
             UpdateValues();
@@ -183,6 +217,7 @@ public sealed partial class MainWindow : Window
                     errorLine,
                     mode,
                     slider,
+                    editGraphBtn,
                 },
             },
         };
@@ -280,6 +315,26 @@ public sealed partial class MainWindow : Window
         if (curve is null)
         {
             curve = new CurveSettings { Id = id, Type = "flat", Name = "Flat", Percent = 50 };
+            _app.Settings.Curves.Add(curve);
+        }
+        return curve;
+    }
+
+    private static string GraphCurveIdFor(string controlId) => $"graph:{controlId}";
+
+    private CurveSettings GetOrCreateGraphCurve(string controlId)
+    {
+        var id = GraphCurveIdFor(controlId);
+        var curve = _app.Settings.Curves.FirstOrDefault(c => c.Id == id);
+        if (curve is null)
+        {
+            curve = new CurveSettings
+            {
+                Id = id,
+                Type = "graph",
+                Name = $"Graph · {_app.Inventory.FirstOrDefault(i => i.Id == controlId)?.Name ?? controlId}",
+                Points = [new CurvePointDto(40, 20), new CurvePointDto(85, 90)],
+            };
             _app.Settings.Curves.Add(curve);
         }
         return curve;

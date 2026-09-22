@@ -1,0 +1,43 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="OpenFan.Linux.App.GraphEditorWindow"
+        Title="Graph curve"
+        Width="820" Height="580"
+        Background="#141414"
+        WindowStartupLocation="CenterOwner">
+
+  <Grid ColumnDefinitions="*,300" Margin="14">
+
+    <Border Grid.Column="0" Background="#1E1E1E" BorderBrush="#2E2E2E"
+            BorderThickness="1" CornerRadius="10" Margin="0,0,14,0">
+      <Canvas x:Name="Plot" ClipToBounds="True" />
+    </Border>
+
+    <StackPanel Grid.Column="1" Spacing="12">
+
+      <TextBlock Text="Sensor" FontSize="12" Foreground="{StaticResource TextSecondary}" />
+      <ComboBox x:Name="SensorBox" HorizontalAlignment="Stretch" />
+
+      <TextBlock Text="Hysteresis (°C)" FontSize="12" Foreground="{StaticResource TextSecondary}" />
+      <NumericUpDown x:Name="HystCBox" Minimum="0" Maximum="10" Increment="0.5" FormatString="0.#" />
+
+      <TextBlock Text="Hold (seconds)" FontSize="12" Foreground="{StaticResource TextSecondary}" />
+      <NumericUpDown x:Name="HystSBox" Minimum="0" Maximum="30" Increment="0.5" FormatString="0.#" />
+
+      <TextBlock Text="Max speed (%)" FontSize="12" Foreground="{StaticResource TextSecondary}" />
+      <NumericUpDown x:Name="MaxSpeedBox" Minimum="10" Maximum="100" Increment="5" FormatString="0" />
+
+      <TextBlock Text="Points (°C → %)" FontSize="12" Foreground="{StaticResource TextSecondary}" Margin="0,6,0,0" />
+      <ListBox x:Name="PointList" Height="150" />
+
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <Button x:Name="RemovePointBtn" Content="Remove selected" />
+        <Button x:Name="ResetPointsBtn" Content="Reset" />
+      </StackPanel>
+
+      <TextBlock Text="Click empty space to add a point · drag a point to move it"
+                 FontSize="11" Foreground="{StaticResource TextSecondary}" TextWrapping="Wrap" />
+
+    </StackPanel>
+  </Grid>
+</Window>
