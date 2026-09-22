@@ -24,23 +24,34 @@
 
     <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*" Margin="26,18,26,16">
 
-      <!-- Page header: title + subtitle left, clock right -->
+      <!-- Page header: title + subtitle left; actions + clock right (reference: OpenFan top bar) -->
       <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,6">
         <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="14" VerticalAlignment="Bottom">
           <TextBlock x:Name="PageTitle" Text="Home" FontSize="24" FontWeight="Bold" Foreground="#F2F2F2" />
           <TextBlock x:Name="PageSubtitle" VerticalAlignment="Bottom" Margin="0,0,0,5"
                      Foreground="{StaticResource TextSecondary}" FontSize="13" />
         </StackPanel>
-        <TextBlock x:Name="ClockText" Grid.Column="1" VerticalAlignment="Bottom"
-                   Foreground="{StaticResource TextSecondary}" FontSize="13" />
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Bottom">
+          <CheckBox x:Name="ApplyCurvesBox" Content="Apply curves" VerticalAlignment="Center" FontSize="14" />
+          <Button x:Name="RefreshBtn" Content="Refresh" Height="32" />
+          <Button x:Name="MenuBtn" Content="⋮" Width="38" Height="32">
+            <Button.Flyout>
+              <MenuFlyout Placement="BottomEdgeAlignedRight">
+                <MenuItem Header="Save setup as…" Click="OnSaveSetupAs" />
+                <MenuItem Header="Load setup…" Click="OnLoadSetup" />
+              </MenuFlyout>
+            </Button.Flyout>
+          </Button>
+          <Button x:Name="ExitBtn" Content="Exit" Height="32" />
+          <TextBlock x:Name="ClockText" VerticalAlignment="Center" Margin="6,0,0,0"
+                     Foreground="{StaticResource TextSecondary}" FontSize="13" />
+        </StackPanel>
       </Grid>
 
       <!-- Home: apply bar + Controls + Curves sections (reference: OpenFan-mainpage.jpg) -->
       <DockPanel x:Name="HomePanel" Grid.Row="1" Grid.RowSpan="2">
-        <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*" Margin="0,4,0,12">
-          <CheckBox x:Name="ApplyCurvesBox" Content="Apply curves" VerticalAlignment="Center" FontSize="14" />
-          <TextBlock x:Name="StatusNote" Grid.Column="1" Margin="20,0,0,0"
-                     VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}" />
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="*" Margin="0,4,0,12">
+          <TextBlock x:Name="StatusNote" VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}" />
         </Grid>
 
         <Grid>

@@ -14,7 +14,7 @@ namespace OpenFan.Linux.App;
 public sealed class FanApp : IDisposable
 {
     public SettingsStore Store { get; }
-    public AppSettings Settings { get; }
+    public AppSettings Settings { get; private set; }
     public HwmonBackend Hwmon { get; }
     public NvmlBackend Nvml { get; } = new();
     public NvmlHelperClient NvmlHelper { get; } = new();
@@ -110,6 +110,16 @@ public sealed class FanApp : IDisposable
 
     /// <summary>One-open check: does this session actually have PWM write access?</summary>
     public string? StartupWriteProbe() => Hwmon.ProbeWriteAccess();
+
+    /// <summary>Switch whole settings profile (Save/Load setup): release owned fans first,
+    /// swap in the loaded profile, pin it as the active config, rescan hardware.</summary>
+    public void LoadProfile(AppSettings fresh)
+    {
+        RestoreAll();
+        Settings = fresh;
+        Save();
+        RefreshInventory(force: true);
+    }
 
     /// <summary>Live output of any library curve against the latest readings (curve cards).</summary>
     public double? CurveOutput(string curveId)

@@ -1,7 +1,9 @@
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Shapes;
+using Avalonia.Controls.Primitives;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
+using Avalonia.Platform.Storage;
 using Avalonia.Media;
 using Avalonia.Threading;
 using OpenFan.Core.Curves;
@@ -43,6 +45,13 @@ public sealed partial class MainWindow : Window
             _app.Save();
             UpdateStatus();
             UpdateValues();
+        };
+
+        RefreshBtn.Click += (_, _) => _app.RefreshInventory(force: true);
+        ExitBtn.Click += (_, _) =>
+        {
+            Exiting = true; // lifetime.Exit restores all owned fans + saves (spec §3.2)
+            Close();
         };
 
         NewFlatFab.Click += (_, _) => CreateCurve("flat");
@@ -478,7 +487,7 @@ public sealed partial class MainWindow : Window
             },
         });
 
-        delBtn.Click += (_, _) => DeleteCurve(curve, noteLine);
+        delBtn.Click += (_, _) => DeleteCurve(curve, delBtn, noteLine);
 
         switch (curve.Type.ToLowerInvariant())
         {
@@ -780,9 +789,9 @@ public sealed partial class MainWindow : Window
             ordered.Select(p => new Avalonia.Point(X(p.TempC), Y(p.Percent))));
         areaPoints.Add(new Avalonia.Point(X(ordered[^1].TempC), Y(0)));
         areaPoints.Add(new Avalonia.Point(X(ordered[0].TempC), Y(0)));
-        canvas.Children.Add(new Polygon { Fill = AreaFill, Points = areaPoints });
+        canvas.Children.Add(new Avalonia.Controls.Shapes.Polygon { Fill = AreaFill, Points = areaPoints });
 
-        canvas.Children.Add(new Polyline
+        canvas.Children.Add(new Avalonia.Controls.Shapes.Polyline
         {
             Stroke = Brushes.White,
             StrokeThickness = 1.5,
@@ -794,7 +803,7 @@ public sealed partial class MainWindow : Window
         {
             var pts = ordered.Select(q => new CurvePoint(q.TempC, q.Percent)).ToList();
             var pct = GraphCurve.Evaluate(pts, t, maxSpeed: Math.Clamp(curve.MaxSpeedPercent, 0, 100));
-            var dot = new Ellipse { Width = 7, Height = 7, Fill = Accent };
+            var dot = new Avalonia.Controls.Shapes.Ellipse { Width = 7, Height = 7, Fill = Accent };
             canvas.Children.Add(dot);
             Canvas.SetLeft(dot, X(t) - 3.5);
             Canvas.SetTop(dot, Y(pct) - 3.5);
@@ -831,19 +840,101 @@ public sealed partial class MainWindow : Window
             OpenGraphEditor(curve); // pick sensor + shape right away
     }
 
-    private void DeleteCurve(CurveSettings curve, TextBlock noteLine)
+    private void DeleteCurve(CurveSettings curve, Button anchor, TextBlock noteLine)
     {
         var used = CurveUsage(curve);
-        if (used > 0)
+        if (used == 0)
         {
-            noteLine.Text = $"In use by {used} fan(s) — switch them first.";
-            noteLine.IsVisible = true;
+            DoDeleteCurve(curve);
             return;
+        }
+
+        // In use: offer one-click unassign + delete instead of making the user hunt for fans.
+        var fly = new MenuFlyout();
+        fly.Items.Add(new MenuItem { Header = $"In use by {used} fan(s)", IsEnabled = false });
+        var force = new MenuItem { Header = "Unassign all & delete" };
+        force.Click += (_, _) => DoDeleteCurve(curve, unassign: true);
+        fly.Items.Add(force);
+        noteLine.IsVisible = false;
+        FlyoutBase.SetAttachedFlyout(anchor, fly);
+        FlyoutBase.ShowAttachedFlyout(anchor);
+    }
+
+    private void DoDeleteCurve(CurveSettings curve, bool unassign = false)
+    {
+        if (unassign)
+        {
+            foreach (var c in _app.Settings.Controls.Where(c =>
+                         string.Equals(c.CurveId, curve.Id, StringComparison.OrdinalIgnoreCase)))
+            {
+                c.Enabled = false; // FanController restores these next tick
+            }
         }
         _app.Settings.Curves.Remove(curve);
         _app.Save();
         RebuildCurveCards();
         RebuildCards();
+    }
+
+    // ---- Save / Load setup (⋮ menu, reference: Windows title-bar menu) ------
+
+    private static string ProfilesDir =>
+        Path.Combine(Path.GetDirectoryName(SettingsStore.DefaultPath) ?? ".", "profiles");
+
+    private async void OnSaveSetupAs(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Directory.CreateDirectory(ProfilesDir);
+            var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "Save setup",
+                SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync($"file://{ProfilesDir}/"),
+                SuggestedFileName = "openfan.json",
+                FileTypeChoices = [new FilePickerFileType("OpenFan setup") { Patterns = ["*.json"] }],
+            });
+            if (file?.Path.LocalPath is string path)
+            {
+                new SettingsStore(path).Save(_app.Settings);
+                StatusNote.Text = $"Setup saved to {path}";
+            }
+        }
+        catch (Exception ex)
+        {
+            // No portal/picker on this desktop — fall back to a timestamped profile file.
+            var path = Path.Combine(ProfilesDir, $"openfan-{DateTime.Now:yyyyMMdd-HHmmss}.json");
+            Directory.CreateDirectory(ProfilesDir);
+            new SettingsStore(path).Save(_app.Settings);
+            StatusNote.Text = $"File dialog unavailable ({ex.GetType().Name}) — setup saved to {path}";
+        }
+    }
+
+    private async void OnLoadSetup(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Directory.CreateDirectory(ProfilesDir);
+            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "Load setup",
+                SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync(new Uri($"file://{ProfilesDir}/")),
+                AllowMultiple = false,
+                FileTypeFilter = [new FilePickerFileType("OpenFan setup") { Patterns = ["*.json"] }],
+            });
+            if (files.Count == 0 || files[0].Path.LocalPath is not string path)
+                return;
+
+            _app.LoadProfile(new SettingsStore(path).Load());
+            ApplyCurvesBox.IsChecked = _app.Settings.ApplyCurves;
+            RebuildCards();
+            RebuildCurveCards();
+            UpdateStatus();
+            StatusNote.Text = $"Setup loaded from {path}";
+        }
+        catch (Exception ex)
+        {
+            StatusNote.Text = $"Load failed: {ex.Message}";
+        }
     }
 
     // ---- shared helpers -----------------------------------------------------
