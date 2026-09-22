@@ -380,7 +380,7 @@ public sealed partial class MainWindow : Window
 
     private string SensorsSubtitle()
     {
-        var count = _app.Inventory.Count(i => i.Kind is HardwareKind.Temperature or HardwareKind.Tach);
+        var count = _app.Inventory.Count(IsSensorish);
         return $"{count} sensors · click a name to rename it";
     }
 
@@ -404,6 +404,51 @@ public sealed partial class MainWindow : Window
         };
     }
 
+    /// <summary>Rows shown on the Sensors page: temps, tach speeds, and GPU fan percent readback.</summary>
+    private static bool IsSensorish(HardwareItem i) =>
+        i.Kind is HardwareKind.Temperature or HardwareKind.Tach
+        || (i.Kind == HardwareKind.Control && i.Id.StartsWith("nvml:", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Device key within a section: per NVMe drive, per GPU card; otherwise the chip group.</summary>
+    private static string DeviceKey(HardwareItem item)
+    {
+        var parts = item.Id.Split(':');
+        if (parts.Length > 2 && parts[1] == "nvme")
+            return "nvme:" + parts[2]; // hwmon instance — drives share one group otherwise
+        return item.Group;
+    }
+
+    // Maps hwmon index -> drive model. NVMe temp chips are /sys/class/hwmon/hwmonN (name "nvme");
+    // the model file sits behind the device symlink and reads through it directly.
+    private static readonly Lazy<Dictionary<string, string>> NvmeLabels = new(() =>
+    {
+        var map = new Dictionary<string, string>();
+        try
+        {
+            foreach (var hm in Directory.GetDirectories("/sys/class/hwmon"))
+            {
+                string chip;
+                try { chip = File.ReadAllText(Path.Combine(hm, "name")).Trim(); } catch { continue; }
+                if (chip != "nvme")
+                    continue;
+
+                var idx = Path.GetFileName(hm).Replace("hwmon", "");
+                try
+                {
+                    var model = File.ReadAllText(Path.Combine(hm, "device", "model")).Trim();
+                    if (model.Length > 0)
+                        map[idx] = model;
+                }
+                catch { }
+            }
+        }
+        catch { }
+        return map;
+    });
+
+    private static string DeviceLabel(string key) =>
+        key.StartsWith("nvme:") && NvmeLabels.Value.TryGetValue(key[5..], out var lbl) ? lbl : key;
+
     private static readonly string[] GroupOrder =
         ["CPU", "GPU", "Motherboard", "Chipset / ASUS EC", "AMD HSMP (SoC)", "Storage (NVMe)", "Network", "Other"];
 
@@ -416,7 +461,7 @@ public sealed partial class MainWindow : Window
         _sensorValueUpdaters.Clear();
 
         var sensors = _app.Inventory
-            .Where(i => i.Kind is HardwareKind.Temperature or HardwareKind.Tach)
+            .Where(IsSensorish)
             .GroupBy(SensorGroup)
             .OrderBy(g => Array.IndexOf(GroupOrder, g.Key) is var ix && ix >= 0 ? ix : 99);
 
@@ -431,9 +476,63 @@ public sealed partial class MainWindow : Window
                 Margin = new Thickness(2, 0, 0, 0),
             });
 
-            var rows = new StackPanel();
-            foreach (var item in group.OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase))
-                rows.Children.Add(BuildSensorRow(item));
+            var body = new StackPanel();
+            var devices = group.GroupBy(DeviceKey).OrderBy(g => DeviceLabel(g.Key), StringComparer.OrdinalIgnoreCase).ToList();
+
+            if (devices.Count > 1)
+            {
+                foreach (var dev in devices)
+                {
+                    var inner = new StackPanel();
+                    foreach (var item in dev.OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase))
+                        inner.Children.Add(BuildSensorRow(item));
+
+                    bool open = true;
+                    var arrow = new TextBlock { Text = "▾", Foreground = Secondary, Width = 18, FontSize = 13 };
+                    var hdrText = new TextBlock
+                    {
+                        Text = DeviceLabel(dev.Key),
+                        Foreground = ValueText,
+                        FontSize = 13.5,
+                        FontWeight = FontWeight.SemiBold,
+                    };
+                    var hdrCount = new TextBlock
+                    {
+                        Text = dev.Count() == 1 ? "1 sensor" : $"{dev.Count()} sensors",
+                        Foreground = Secondary,
+                        FontSize = 12,
+                        Margin = new Thickness(8, 0, 0, 0),
+                    };
+                    var header = new Button
+                    {
+                        Background = null,
+                        BorderThickness = new Thickness(0),
+                        Padding = new Thickness(0, 5, 0, 5),
+                        HorizontalAlignment = HorizontalAlignment.Stretch,
+                        HorizontalContentAlignment = HorizontalAlignment.Left,
+                        Content = new StackPanel
+                        {
+                            Orientation = Orientation.Horizontal,
+                            Spacing = 2,
+                            Children = { arrow, hdrText, hdrCount },
+                        },
+                    };
+                    header.Click += (_, _) =>
+                    {
+                        open = !open;
+                        inner.IsVisible = open;
+                        arrow.Text = open ? "▾" : "▸";
+                    };
+
+                    body.Children.Add(header);
+                    body.Children.Add(inner);
+                }
+            }
+            else
+            {
+                foreach (var item in group.OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase))
+                    body.Children.Add(BuildSensorRow(item));
+            }
 
             SensorsContent.Children.Add(new Border
             {
@@ -442,14 +541,15 @@ public sealed partial class MainWindow : Window
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(10),
                 Padding = new Thickness(14, 8, 14, 8),
-                Child = rows,
+                Child = body,
             });
         }
     }
 
     private Control BuildSensorRow(HardwareItem item)
     {
-        var original = item.Name;
+        bool isPercent = item.Kind == HardwareKind.Control;
+        var original = isPercent ? item.Name + " %" : item.Name;
         var valueText = new TextBlock
         {
             MinWidth = 96,
@@ -463,7 +563,7 @@ public sealed partial class MainWindow : Window
         // Quiet affordance again: the name is a borderless textbox; tooltip keeps the hardware truth.
         var nameBox = new TextBox
         {
-            Text = _app.SensorLabel(item),
+            Text = isPercent ? _app.Settings.SensorAliases.GetValueOrDefault(item.Id, original) : _app.SensorLabel(item),
             Classes = { "cardname" },
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -475,7 +575,7 @@ public sealed partial class MainWindow : Window
             if (text.Length == 0 || text == original)
             {
                 _app.Settings.SensorAliases.Remove(item.Id);
-                nameBox.Text = original;
+                nameBox.Text = original; // hardware default, "%"-suffixed for GPU fan rows
             }
             else
             {
@@ -493,7 +593,8 @@ public sealed partial class MainWindow : Window
         _sensorValueUpdaters.Add((item.Id, v =>
             valueText.Text = v is null
                 ? "—"
-                : item.Kind == HardwareKind.Tach ? $"{v:0} RPM" : $"{v:0.#} °C"));
+                : item.Kind == HardwareKind.Tach ? $"{v:0} RPM"
+                : isPercent ? $"{v:0} %" : $"{v:0.#} °C"));
 
         return new Grid
         {
