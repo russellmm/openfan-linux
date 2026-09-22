@@ -489,6 +489,8 @@ public sealed partial class MainWindow : Window
 
         delBtn.Click += (_, _) => DeleteCurve(curve, delBtn, noteLine);
 
+        body.Children.Add(header); // name + delete live above the type-specific controls
+
         switch (curve.Type.ToLowerInvariant())
         {
             case "flat": BuildFlatBody(curve, body); break;
