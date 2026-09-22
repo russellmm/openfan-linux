@@ -32,6 +32,7 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
         _app = app;
+        RestoreWindowGeometry(app.Settings);
 
         ApplyCurvesBox.IsChecked = app.Settings.ApplyCurves;
         ApplyCurvesBox.IsCheckedChanged += (_, _) =>
@@ -136,8 +137,54 @@ public sealed partial class MainWindow : Window
         catch { return "driver ?"; }
     }
 
+    private DispatcherTimer? _geometryDebounce;
+
+    private void RestoreWindowGeometry(AppSettings s)
+    {
+        if (s.WindowWidth is double w && w >= 400 && s.WindowHeight is double h && h >= 300)
+        {
+            Width = w;
+            Height = h;
+        }
+        if (s.WindowX is int x && s.WindowY is int y
+            && x > -4000 && y > -4000 && (x != 0 || y != 0))
+        {
+            WindowStartupLocation = WindowStartupLocation.Manual;
+            Position = new PixelPoint(x, y);
+        }
+
+        // Debounced autosave so dragging/resizing doesn't hammer the config file.
+        _geometryDebounce = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.2) };
+        _geometryDebounce.Tick += (_, _) =>
+        {
+            _geometryDebounce!.Stop();
+            CaptureGeometry();
+        };
+        PositionChanged += (_, _) => RestartGeometryDebounce();
+        Resized += (_, _) => RestartGeometryDebounce();
+    }
+
+    private void RestartGeometryDebounce()
+    {
+        if (_geometryDebounce is null)
+            return;
+        _geometryDebounce.Stop();
+        _geometryDebounce.Start();
+    }
+
+    private void CaptureGeometry()
+    {
+        var s = _app.Settings;
+        s.WindowWidth = Bounds.Width;
+        s.WindowHeight = Bounds.Height;
+        s.WindowX = Position.X;
+        s.WindowY = Position.Y;
+        _app.Save();
+    }
+
     protected override void OnClosing(WindowClosingEventArgs e)
     {
+        CaptureGeometry(); // covers both hide-to-tray and real exit paths
         if (!Exiting)
         {
             e.Cancel = true;
@@ -504,14 +551,23 @@ public sealed partial class MainWindow : Window
             sensorBox.Items.Add(item);
             sensorItems.Add((item, t.Id, $"{t.Name}  ·  {t.Group}"));
         }
-        sensorBox.SelectedItem = sensorItems
-            .FirstOrDefault(s => s.Id == curve.SensorId).Item;
-
         var suppress = false;
+        int WantedIndex() => sensorItems.FindIndex(s => s.Id == curve.SensorId);
+        sensorBox.SelectedIndex = WantedIndex();
+
         sensorBox.SelectionChanged += (_, _) =>
         {
             if (suppress) return;
-            curve.SensorId = (sensorBox.SelectedItem as ComboBoxItem)?.Tag as string;
+            var tag = (sensorBox.SelectedItem as ComboBoxItem)?.Tag as string;
+            if (tag is null && curve.SensorId is not null)
+            {
+                // A spurious selection clear (rebuild/layout) must never unbind the sensor.
+                suppress = true;
+                sensorBox.SelectedIndex = WantedIndex();
+                suppress = false;
+                return;
+            }
+            curve.SensorId = tag;
             _app.Save();
         };
 
@@ -547,6 +603,15 @@ public sealed partial class MainWindow : Window
 
         _curveUpdaters.Add(() =>
         {
+            // Re-assert the bound sensor if anything ever cleared the combo (belt & braces).
+            var want = WantedIndex();
+            if (want >= 0 && sensorBox.SelectedIndex != want)
+            {
+                suppress = true;
+                sensorBox.SelectedIndex = want;
+                suppress = false;
+            }
+
             foreach (var (item, id, baseLabel) in sensorItems)
             {
                 var r = _app.Reading(id);

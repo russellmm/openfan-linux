@@ -9,6 +9,12 @@ public sealed class AppSettings
     public bool StartAtLogin { get; set; }
     public bool StartMinimized { get; set; }
     public bool ApplyCurves { get; set; }
+
+    // Window geometry (Linux app): restored on launch, saved when the window moves/resizes/closes.
+    public int? WindowX { get; set; }
+    public int? WindowY { get; set; }
+    public double? WindowWidth { get; set; }
+    public double? WindowHeight { get; set; }
     public string AccentColor { get; set; } = AccentHex.Default;
     public string? NamedConfigPath { get; set; }
     public int RefreshMs { get; set; } = 1000;
