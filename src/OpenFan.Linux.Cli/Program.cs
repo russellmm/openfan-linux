@@ -132,7 +132,10 @@ static int ApplyOnce(IReadOnlyList<HardwareItem> items, string idArg, string per
         return 1;
     }
 
-    var actuator = new CompositeActuator(("hwmon", hwmon), ("nvml", nvml));
+    var helper = new NvmlHelperClient();
+    var actuator = new CompositeActuator(
+        ("hwmon", hwmon),
+        ("nvml", helper.IsAvailable ? helper : (OpenFan.Core.ControlLoop.IFanActuator)nvml));
     var isNvml = control.Backend.Equals("nvml", StringComparison.OrdinalIgnoreCase);
     // Paired read-backs: hwmon pwm4↔fan4 by index; nvml fan0↔tach0.
     var pairedId = isNvml
@@ -175,9 +178,8 @@ static int ApplyOnce(IReadOnlyList<HardwareItem> items, string idArg, string per
 static int PermissionDenied(string id)
 {
     Console.Error.WriteLine($"Cannot write {id}: permission denied or unsupported by the driver.");
-    Console.Error.WriteLine("For hwmon PWM: install the ACL once (see packaging/README), relogin —");
-    Console.Error.WriteLine("or run this one-off command with sudo. NVML fan control needs no ACL;");
-    Console.Error.WriteLine("a NoPermission there means restricted NVIDIA device node access.");
+    Console.Error.WriteLine("For hwmon PWM: check 'openfan' group membership (relogin after usermod).");
+    Console.Error.WriteLine("For nvml fans: start openfan-helper (packaging/README) or run under sudo.");
     return 3;
 }
 

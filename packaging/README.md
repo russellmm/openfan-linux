@@ -40,3 +40,53 @@ openfan-linux --apply-once hwmon:nct6799:10:pwm:4 40 --seconds 15
   OpenFan degrades to GPU fans + read-only board temps (documented fork).
 - Uninstall: remove the two installed files, `sudo groupdel openfan` (after removing
   members), modes revert on next boot.
+
+---
+
+# openfan-helper — privileged GPU fan daemon (one-time setup)
+
+The Linux NVIDIA driver gates NVML fan **writes** on root euid (reads are free).
+`openfan-helper` runs as a small root systemd service and exposes exactly one
+capability: setting/restoring NVIDIA fans, for members of the `openfan` group.
+hwmon PWM does **not** go through it (udev ACL covers that).
+
+## Install (after building the repo)
+
+```sh
+cd /run/media/russellm/8TB/deepseek-linux/projects/openfan-linux
+dotnet publish src/OpenFan.Linux.Helper -c Release -r linux-x64 --self-contained true \
+  -p:PublishSingleFile=true -o /tmp/openfan-helper-build
+sudo install -m 755 /tmp/openfan-helper-build/openfan-helper /usr/local/lib/openfan/
+sudo install -m 644 packaging/openfan-helper.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now openfan-helper
+```
+
+## Verify
+
+```sh
+systemctl status openfan-helper --no-pager | head -5
+ls -l /run/openfan/helper.sock        # srw-rw---- 1 root openfan
+# as your normal user:
+python3 -c "print('socket visible:', __import__('os').path.exists('/run/openfan/helper.sock'))"
+```
+
+Then start the OpenFan GUI — GPU cards route through the helper automatically
+(the status line stops complaining about the helper).
+
+## Safety model
+
+- Socket `/run/openfan/helper.sock` is `0660 root:openfan` → only group members can talk to it.
+- Protocol accepts **only** `nvml:<uuid>:fan:<n>` ids with percent 0–100; nothing else —
+  no shell, no file paths, no power limits (yet).
+- **Restore-on-disconnect:** each connection owns the fans it sets; if the GUI crashes or is
+  killed, the helper restores those fans to driver default immediately.
+- Helper restart / SIGTERM also drains sessions with restore.
+
+## Uninstall
+
+```sh
+sudo systemctl disable --now openfan-helper
+sudo rm /etc/systemd/system/openfan-helper.service /usr/local/lib/openfan/openfan-helper
+sudo systemctl daemon-reload
+```

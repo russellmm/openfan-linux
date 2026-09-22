@@ -1,0 +1,21 @@
+[Unit]
+Description=OpenFan privileged NVIDIA GPU fan helper
+Documentation=https://github.com/russellmm/OpenFan (openfan-linux packaging/README.md)
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/lib/openfan/openfan-helper
+# /run/openfan is created on start, removed on stop; the socket inside is 0660 root:openfan.
+RuntimeDirectory=openfan
+Restart=on-failure
+RestartSec=2
+User=root
+# Conservative hardening — NVML needs /dev/nvidia*, /sys reads and dlopen from /usr,
+# so no ProtectSystem/RestrictAddressFamilies here; NoNewPrivileges + PrivateTmp only.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

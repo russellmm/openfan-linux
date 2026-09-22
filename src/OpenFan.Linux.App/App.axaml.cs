@@ -30,6 +30,7 @@ public sealed class App : Application
             {
                 Hardware.RestoreAll();
                 Hardware.Save();
+                Hardware.Dispose(); // closes helper socket cleanly → helper restores our session
             };
 
             SetupTray(lifetime);

@@ -246,8 +246,8 @@ public sealed partial class MainWindow : Window
 
             var gpuEnabled = _app.Settings.Controls.Any(c =>
                 c.Enabled && c.Id.StartsWith("nvml:", StringComparison.OrdinalIgnoreCase));
-            if (gpuEnabled && !_app.IsRoot)
-                notes.Add("GPU fan writes need the root helper — not yet installed, those fans stay on driver control");
+            if (gpuEnabled && _app.GpuHelperMissing)
+                notes.Add("GPU fan writes need openfan-helper — not running, those fans stay on driver control");
         }
         else
         {

@@ -128,7 +128,7 @@ Writing `/sys/class/hwmon/hwmonX/pwmN` usually requires root **or** the file to 
 **Rejected for v1:** setuid root binary (too easy to get wrong).  
 > **Linux finding (spike 2026-09-21):** NVML fan *writes* return NO_PERMISSION for uid 1000 even with world-writable `/dev/nvidia*` — the driver gates config writes on root euid. hwmon PWM is fine via the ACL. So a privileged path for GPU fans is **required**, not conditional.
 
-**Phase 2 (now required for NVML fan control):** small privileged helper (`openfan-helper`) over Unix socket with polkit, or sudoers-gated one-shot setter; decide during Phase 4/5 app work. CLI may run under sudo meanwhile.
+**Helper: BUILT 2026-09-21.** `src/OpenFan.Linux.Helper` → root systemd service `openfan-helper`; Unix socket `/run/openfan/helper.sock` (0660 root:openfan), line protocol accepting only `nvml:*:fan:*` ids, restore-on-disconnect per session (crash-safe). GUI/CLI auto-route GPU writes through it when the socket exists; direct NVML remains for sudo debugging. polkit/user UI for install deferred.
 
 ---
 

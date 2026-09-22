@@ -17,6 +17,12 @@ public sealed class FanApp : IDisposable
     public AppSettings Settings { get; }
     public HwmonBackend Hwmon { get; }
     public NvmlBackend Nvml { get; } = new();
+    public NvmlHelperClient NvmlHelper { get; } = new();
+
+    /// <summary>GPU writes go through the root helper when its socket exists; direct NVML
+    /// remains for sudo debugging. hwmon always goes direct via the udev ACL.</summary>
+    private readonly IFanActuator _nvmlRoute;
+
     public CompositeActuator Actuator { get; }
     public FanController Controller { get; }
 
@@ -36,7 +42,8 @@ public sealed class FanApp : IDisposable
         Store = new SettingsStore(SettingsStore.DefaultPath);
         Settings = Store.Load();
         Hwmon = new HwmonBackend(null, Settings.Sources);
-        Actuator = new CompositeActuator(("hwmon", Hwmon), ("nvml", Nvml));
+        _nvmlRoute = NvmlHelper.IsAvailable ? NvmlHelper : Nvml;
+        Actuator = new CompositeActuator(("hwmon", Hwmon), ("nvml", _nvmlRoute));
         Controller = new FanController(Actuator);
         RefreshInventory(force: true);
     }
@@ -44,6 +51,9 @@ public sealed class FanApp : IDisposable
     public IReadOnlyList<HardwareItem> Inventory => _inventory;
     public double NowSeconds => _clock.Elapsed.TotalSeconds;
     public bool IsRoot => geteuid() == 0;
+
+    /// <summary>Enabled GPU fans but no helper and not root → writes cannot land.</summary>
+    public bool GpuHelperMissing => !IsRoot && !NvmlHelper.IsAvailable;
 
     public double? Reading(string id) => _readings.GetValueOrDefault(id);
 
@@ -92,7 +102,9 @@ public sealed class FanApp : IDisposable
 
     /// <summary>Per-backend human reason for the last failed write (spec: never silently monitor-only).</summary>
     public string? WriteError(HardwareItem item) =>
-        item.Backend.Equals("nvml", StringComparison.OrdinalIgnoreCase) ? Nvml.LastWriteError : Hwmon.LastWriteError;
+        item.Backend.Equals("nvml", StringComparison.OrdinalIgnoreCase)
+            ? _nvmlRoute is NvmlHelperClient client ? client.LastError : Nvml.LastWriteError
+            : Hwmon.LastWriteError;
 
     public bool HasWriteError(string controlId) => Controller.Errors.ContainsKey(controlId);
 
@@ -106,6 +118,7 @@ public sealed class FanApp : IDisposable
 
     public void Dispose()
     {
+        NvmlHelper.Dispose(); // clean socket close → helper restores anything we owned
         Hwmon.Dispose();
         Nvml.Dispose();
     }
