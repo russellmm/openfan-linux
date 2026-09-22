@@ -21,6 +21,9 @@ DISPLAY=:0 XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 \
   setsid nohup ./src/OpenFan.Linux.App/bin/Debug/net8.0/openfan >/tmp/openfan-gui.log 2>&1 </dev/null &
 ```
 - Crash log for the agent-launched instance: `/tmp/openfan-gui.log` (this is how the calibrate crash was found).
+- **See the user's actual window**: `scrot`/`imagemagick`/`xdotool` installed.
+  `W=$(DISPLAY=:0 xdotool search --class openfan | head -1); DISPLAY=:0 import -window "$W" /tmp/x.png` then read_image.
+  Caught the invisible-nav-rail bug this way (a1c4a4b) — use it to verify UI changes, don't reason blind.
 - `pgrep -f "bin/Debug/net8.0/openfan"` self-matches its own bash line → use `pgrep -x openfan`.
 - Git identity: `git -c user.name="russellmm" -c user.email="russellmm@users.noreply.github.com" commit`.
 - **Never chain `build | grep "0 Error(s)" && … && commit`**: grep exits 0 on match and the chain commits
