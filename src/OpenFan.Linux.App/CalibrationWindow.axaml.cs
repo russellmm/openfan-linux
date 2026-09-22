@@ -87,8 +87,18 @@ public sealed partial class CalibrationWindow : Window
         Validate();
     }
 
-    private ControlSettings Cfg() =>
-        _app.Settings.Controls.First(c => c.Id == _item.Id);
+    // Unconfigured fans have no settings row yet — create one (same as the main window does).
+    private ControlSettings Cfg()
+    {
+        var list = _app.Settings.Controls;
+        var c = list.FirstOrDefault(x => x.Id == _item.Id);
+        if (c is null)
+        {
+            c = new ControlSettings { Id = _item.Id, Name = _item.Name };
+            list.Add(c);
+        }
+        return c;
+    }
 
     // ---- live readout + sweep state machine (1 s cadence) -------------------
 
