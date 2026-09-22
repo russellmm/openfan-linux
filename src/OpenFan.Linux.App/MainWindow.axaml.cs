@@ -12,11 +12,11 @@ namespace OpenFan.Linux.App;
 
 public sealed partial class MainWindow : Window
 {
-    private static readonly IBrush Secondary = new SolidColorBrush(Color.Parse("#9A9A9A"));
-    private static readonly IBrush CardBg = new SolidColorBrush(Color.Parse("#1E1E1E"));
-    private static readonly IBrush CardBorder = new SolidColorBrush(Color.Parse("#2E2E2E"));
-    private static readonly IBrush Accent = new SolidColorBrush(Color.Parse("#E24B4B"));
-    private static readonly IBrush Warn = new SolidColorBrush(Color.Parse("#E5A64B"));
+    private static readonly IBrush Secondary = new SolidColorBrush(Color.Parse("#8FA0AA"));
+    private static readonly IBrush CardBg = new SolidColorBrush(Color.Parse("#1E2429"));
+    private static readonly IBrush CardBorder = new SolidColorBrush(Color.Parse("#2C363D"));
+    private static readonly IBrush Accent = new SolidColorBrush(Color.Parse("#F0A03C"));
+    private static readonly IBrush Warn = new SolidColorBrush(Color.Parse("#EF6B6B"));
 
     private readonly FanApp _app;
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
@@ -41,7 +41,19 @@ public sealed partial class MainWindow : Window
             UpdateValues();
         };
 
-        VersionNote.Text = $"v{typeof(MainWindow).Assembly.GetName().Version?.ToString(3)} · hwmon + NVML";
+        _homeSubtitle = $"v{typeof(MainWindow).Assembly.GetName().Version?.ToString(3)} · hwmon + NVML";
+
+        NavHome.Checked += (_, _) => ShowPage("home");
+        NavGpus.Checked += (_, _) => ShowPage("gpus");
+        NavTheme.Checked += (_, _) => ShowPage("theme");
+        NavTray.Checked += (_, _) => ShowPage("tray");
+        NavSettings.Checked += (_, _) => ShowPage("settings");
+        NavAbout.Checked += (_, _) => ShowPage("about");
+        ManageCurvesBtn.Click += (_, _) =>
+            new CurveLibraryWindow(_app, RebuildCards).Show(this);
+
+        PageSubtitle.Text = _homeSubtitle;
+        ClockText.Text = DateTime.Now.ToString("h:mm:ss tt");
 
         _app.InventoryChanged += RebuildCards;
         _app.Ticked += UpdateValues;
@@ -49,8 +61,70 @@ public sealed partial class MainWindow : Window
         UpdateStatus();
         _app.Tick(); // first paint now, not one timer-tick late
 
-        _timer.Tick += (_, _) => _app.Tick();
+        _timer.Tick += (_, _) =>
+        {
+            _app.Tick();
+            ClockText.Text = DateTime.Now.ToString("h:mm:ss tt");
+        };
         _timer.Start();
+    }
+
+    private string _homeSubtitle = "";
+
+    private void ShowPage(string page)
+    {
+        HomePanel.IsVisible = page == "home";
+        GpusPanel.IsVisible = page == "gpus";
+        StubPage.IsVisible = page is not ("home" or "gpus");
+
+        (PageTitle.Text, PageSubtitle.Text) = page switch
+        {
+            "gpus" => ("GPUs", GpuSubtitle()),
+            "theme" => ("Theme", ""),
+            "tray" => ("Tray", ""),
+            "settings" => ("Settings", ""),
+            "about" => ("About", ""),
+            _ => ("Home", _homeSubtitle),
+        };
+
+        StubPage.Text = page switch
+        {
+            "theme" => "Theme options arrive with the Phase 5 polish pass.",
+            "tray" => "Tray is active now: closing the window hides to tray (curves keep applying);\ntray Exit restores every owned fan. Per-icon options pending.",
+            "settings" => "Settings — disabled hwmon chips, refresh interval, start-at-login — land in Phase 5.",
+            "about" => "OpenFan Linux — motherboard + NVIDIA fan control for Ubuntu.\nMIT licensed · curve engine shared with Windows OpenFan.",
+            _ => "",
+        };
+
+        if (page == "gpus")
+        {
+            GpusContent.Children.Clear();
+            GpusContent.Children.Add(new TextBlock
+            {
+                Text = "GPU detail panels — power limits, clocks, PCIe state and per-process usage —\narrive with the helper protocol extension (next task). Fan control on GPU cards\nfrom the Home page already works through openfan-helper.",
+                Foreground = Secondary,
+                FontSize = 14,
+                TextWrapping = TextWrapping.Wrap,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 60, 0, 0),
+            });
+        }
+    }
+
+    private string GpuSubtitle()
+    {
+        if (!_app.Nvml.Available)
+            return "NVML unavailable";
+        var count = _app.Inventory
+            .Where(i => i.Id.StartsWith("nvml:", StringComparison.OrdinalIgnoreCase))
+            .Select(i => i.Group).Distinct().Count();
+        return $"{count} GPU(s) · {(NvmlDriverVersion())}";
+    }
+
+    private string NvmlDriverVersion()
+    {
+        try { return $"driver {_app.Nvml.DriverVersion}"; }
+        catch { return "driver ?"; }
     }
 
     protected override void OnClosing(WindowClosingEventArgs e)
@@ -108,11 +182,14 @@ public sealed partial class MainWindow : Window
             IsVisible = false,
         };
 
+        // Assignment model (matches Windows OpenFan): curves are independent named objects —
+        // a graph binds its own sensor — and any number of fans may share one curve.
         var mode = new ComboBox
         {
-            ItemsSource = new[] { "Monitor", "Flat", "Graph" },
             HorizontalAlignment = HorizontalAlignment.Left,
         };
+        PopulateCurveChoices(mode, item);
+
         var slider = new Slider
         {
             Minimum = item.MinPercent,
@@ -122,61 +199,48 @@ public sealed partial class MainWindow : Window
             IsVisible = false,
         };
 
-        var editGraphBtn = new Button
+        var editCurveBtn = new Button
         {
-            Content = "Edit graph…",
+            Content = "Edit curve…",
             IsVisible = false,
             HorizontalAlignment = HorizontalAlignment.Left,
         };
 
-        // Initial state from settings — read-only lookup; entries are created on first user edit.
         var existingCfg = _app.Settings.Controls.FirstOrDefault(c => c.Id == item.Id);
-        var existingFlat = _app.Settings.Curves.FirstOrDefault(c => c.Id == CurveIdFor(item.Id));
-        var initialMode = existingCfg is not { Enabled: true }
-            ? "Monitor"
-            : existingCfg.CurveId?.StartsWith("graph:", StringComparison.OrdinalIgnoreCase) == true
-                ? "Graph"
-                : "Flat";
-        mode.SelectedItem = initialMode;
-        slider.Value = Math.Clamp(existingFlat?.Percent ?? 50, item.MinPercent, 100);
-        slider.IsVisible = initialMode == "Flat";
-        editGraphBtn.IsVisible = initialMode == "Graph";
-
-        editGraphBtn.Click += (_, _) =>
+        var assigned = FindAssignedCurve(existingCfg);
+        if (assigned?.Type == "flat")
         {
-            var curve = GetOrCreateGraphCurve(item.Id);
-            new GraphEditorWindow(_app, curve).Show(this);
+            slider.Value = Math.Clamp(assigned.Percent, item.MinPercent, 100);
+            slider.IsVisible = true;
+        }
+        editCurveBtn.IsVisible = assigned?.Type == "graph";
+
+        editCurveBtn.Click += (_, _) =>
+        {
+            var cur = FindAssignedCurve(FindOrCreateCfg(item));
+            if (cur is not null)
+                OpenGraphEditor(cur);
         };
 
         mode.SelectionChanged += (_, _) =>
         {
             var c = FindOrCreateCfg(item);
-            switch ((string?)mode.SelectedItem)
+            var curveId = (mode.SelectedItem as ComboBoxItem)?.Tag as string;
+            if (curveId is null)
             {
-                case "Flat":
-                    var flat = GetOrCreateFlatCurve(item.Id);
-                    flat.Percent = Math.Clamp(slider.Value, item.MinPercent, 100);
-                    c.CurveId = CurveIdFor(item.Id);
-                    c.Enabled = true;
-                    slider.IsVisible = true;
-                    editGraphBtn.IsVisible = false;
-                    break;
-
-                case "Graph":
-                    var graph = GetOrCreateGraphCurve(item.Id);
-                    c.CurveId = GraphCurveIdFor(item.Id);
-                    c.Enabled = true;
-                    slider.IsVisible = false;
-                    editGraphBtn.IsVisible = true;
-                    if (graph.SensorId is null)
-                        new GraphEditorWindow(_app, graph).Show(this);
-                    break;
-
-                default: // Monitor
-                    c.Enabled = false; // FanController restores this control next tick
-                    slider.IsVisible = false;
-                    editGraphBtn.IsVisible = false;
-                    break;
+                c.Enabled = false; // Monitor: FanController restores this control next tick
+                slider.IsVisible = false;
+                editCurveBtn.IsVisible = false;
+            }
+            else
+            {
+                var curve = _app.Settings.Curves.FirstOrDefault(k => k.Id == curveId);
+                c.CurveId = curveId;
+                c.Enabled = true;
+                slider.IsVisible = curve?.Type == "flat";
+                if (curve?.Type == "flat")
+                    slider.Value = Math.Clamp(curve.Percent, item.MinPercent, 100);
+                editCurveBtn.IsVisible = curve?.Type == "graph";
             }
             _app.Save();
             UpdateValues();
@@ -185,14 +249,10 @@ public sealed partial class MainWindow : Window
         slider.ValueChanged += (_, _) =>
         {
             var c = FindOrCreateCfg(item);
-            var curve = GetOrCreateFlatCurve(item.Id);
-            curve.Percent = Math.Round(slider.Value);
-            c.CurveId = CurveIdFor(item.Id);
-            if (!c.Enabled)
-            {
-                c.Enabled = true;
-                mode.SelectedItem = "Flat";
-            }
+            var curve = FindAssignedCurve(c);
+            if (curve is null || !string.Equals(curve.Type, "flat", StringComparison.OrdinalIgnoreCase))
+                return;
+            curve.Percent = Math.Round(slider.Value); // shared flat: moves every fan using it
             _app.Save();
         };
 
@@ -217,7 +277,7 @@ public sealed partial class MainWindow : Window
                     errorLine,
                     mode,
                     slider,
-                    editGraphBtn,
+                    editCurveBtn,
                 },
             },
         };
@@ -295,8 +355,6 @@ public sealed partial class MainWindow : Window
         StatusNote.Text = string.Join("   ·   ", notes);
     }
 
-    private static string CurveIdFor(string controlId) => $"flat:{controlId}";
-
     private ControlSettings FindOrCreateCfg(HardwareItem item)
     {
         var cfg = _app.Settings.Controls.FirstOrDefault(c => c.Id == item.Id);
@@ -308,35 +366,35 @@ public sealed partial class MainWindow : Window
         return cfg;
     }
 
-    private CurveSettings GetOrCreateFlatCurve(string controlId)
+    private void PopulateCurveChoices(ComboBox mode, HardwareItem item)
     {
-        var id = CurveIdFor(controlId);
-        var curve = _app.Settings.Curves.FirstOrDefault(c => c.Id == id);
-        if (curve is null)
-        {
-            curve = new CurveSettings { Id = id, Type = "flat", Name = "Flat", Percent = 50 };
-            _app.Settings.Curves.Add(curve);
-        }
-        return curve;
+        var cfg = _app.Settings.Controls.FirstOrDefault(c => c.Id == item.Id);
+        var items = new List<ComboBoxItem> { new() { Content = "Monitor", Tag = null } };
+        foreach (var curve in _app.Settings.Curves.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase))
+            items.Add(new ComboBoxItem { Content = $"{curve.Name}  ({curve.Type})", Tag = curve.Id });
+        mode.ItemsSource = items;
+        mode.SelectedItem = cfg is { Enabled: true }
+            ? items.FirstOrDefault(i => (string?)i.Tag == cfg.CurveId) ?? items[0]
+            : items[0];
     }
 
-    private static string GraphCurveIdFor(string controlId) => $"graph:{controlId}";
+    private CurveSettings? FindAssignedCurve(ControlSettings? cfg) =>
+        cfg is { Enabled: true } && !string.IsNullOrEmpty(cfg.CurveId)
+            ? _app.Settings.Curves.FirstOrDefault(c => c.Id == cfg.CurveId)
+            : null;
 
-    private CurveSettings GetOrCreateGraphCurve(string controlId)
+    /// <summary>Editor edits a working copy; Ok commits via this callback (reference dialog semantics).</summary>
+    private void OpenGraphEditor(CurveSettings curve)
     {
-        var id = GraphCurveIdFor(controlId);
-        var curve = _app.Settings.Curves.FirstOrDefault(c => c.Id == id);
-        if (curve is null)
+        var editor = new GraphEditorWindow(_app, curve, edited =>
         {
-            curve = new CurveSettings
-            {
-                Id = id,
-                Type = "graph",
-                Name = $"Graph · {_app.Inventory.FirstOrDefault(i => i.Id == controlId)?.Name ?? controlId}",
-                Points = [new CurvePointDto(40, 20), new CurvePointDto(85, 90)],
-            };
-            _app.Settings.Curves.Add(curve);
-        }
-        return curve;
+            var curves = _app.Settings.Curves;
+            curves.RemoveAll(c => c.Id == edited.Id);
+            curves.Add(edited);
+            _app.Save();
+            UpdateValues();
+        });
+        editor.Show(this);
     }
+
 }

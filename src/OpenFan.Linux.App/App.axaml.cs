@@ -76,9 +76,9 @@ public sealed class App : Application
             var px = new byte[32 * 32 * 4];
             for (var i = 0; i < 32 * 32; i++)
             {
-                px[i * 4 + 0] = 0x4B; // B
-                px[i * 4 + 1] = 0x4B; // G
-                px[i * 4 + 2] = 0xE2; // R — accent #E24B4B
+                px[i * 4 + 0] = 0x3C; // B
+                px[i * 4 + 1] = 0xA0; // G
+                px[i * 4 + 2] = 0xF0; // R — accent #F0A03C
                 px[i * 4 + 3] = 0xFF;
             }
             Marshal.Copy(px, 0, fb.Address, px.Length);

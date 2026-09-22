@@ -2,7 +2,7 @@ namespace OpenFan.Core;
 
 public static class AccentHex
 {
-    public const string Default = "#E24B4B";
+    public const string Default = "#F0A03C";
 
     public static bool TryParse(string? hex, out byte r, out byte g, out byte b)
     {

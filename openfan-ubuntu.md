@@ -345,7 +345,8 @@ On the intended Ubuntu machine:
 
 ### Phase 4 — Avalonia shell
 
-- [ ] Dark window, Home cards (Control / Flat / Graph / Mix) — port layout ideas, not XAML
+- [x] Dark window, Home cards — nav rail + page header + orange/slate palette matched to screenshots/ 2026-09-22;
+cards assign **library curves by name** (Monitor | curve…) — one curve shared across fans, graph binds its own sensor
 - [x] Apply checkbox, tray, single-instance, Exit restore — user-verified on target 2026-09-21
 - [ ] Graph editor ✓ (canvas add/drag, sensor, hysteresis, max-speed), calibrate, hide, drag-reorder
 - [ ] Settings, Theme accent, About (versions + Check for OpenFan updates via GitHub)

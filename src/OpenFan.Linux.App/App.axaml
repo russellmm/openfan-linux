@@ -3,16 +3,50 @@
              x:Class="OpenFan.Linux.App.App"
              RequestedThemeVariant="Dark">
 
-  <!-- Dark card language + OpenFan accent #E24B4B (spec §6). -->
+  <!-- Windows OpenFan design language (screenshots/): bluish dark slate + orange accent. -->
   <Application.Resources>
-    <Color x:Key="SystemAccentColor">#E24B4B</Color>
-    <SolidColorBrush x:Key="AccentBrush" Color="#E24B4B" />
-    <SolidColorBrush x:Key="CardBrush" Color="#1E1E1E" />
-    <SolidColorBrush x:Key="CardBorderBrush" Color="#2E2E2E" />
-    <SolidColorBrush x:Key="TextSecondary" Color="#9A9A9A" />
+    <Color x:Key="SystemAccentColor">#F0A03C</Color>
+    <SolidColorBrush x:Key="AccentBrush" Color="#F0A03C" />
+    <SolidColorBrush x:Key="CardBrush" Color="#1E2429" />
+    <SolidColorBrush x:Key="CardBorderBrush" Color="#2C363D" />
+    <SolidColorBrush x:Key="TextSecondary" Color="#8FA0AA" />
   </Application.Resources>
 
   <Application.Styles>
     <FluentTheme />
+
+    <!-- Left nav rail item: orange bar + white text when active (reference: GPU screen). -->
+    <Style Selector="RadioButton.nav">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Background="{TemplateBinding Background}" Padding="0,11">
+            <Grid ColumnDefinitions="4,*">
+              <Rectangle x:Name="bar" Fill="#F0A03C" IsHitTestVisible="False" />
+              <ContentPresenter Grid.Column="1" Margin="18,0,0,0" VerticalAlignment="Center" />
+            </Grid>
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="RadioButton.nav:not(:checked) /template/ Rectangle#bar">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="RadioButton.nav /template/ ContentPresenter">
+      <Setter Property="TextBlock.Foreground" Value="#8FA0AA" />
+    </Style>
+    <Style Selector="RadioButton.nav:pointerover /template/ ContentPresenter">
+      <Setter Property="TextBlock.Foreground" Value="#D6DEE3" />
+    </Style>
+    <Style Selector="RadioButton.nav:checked /template/ ContentPresenter">
+      <Setter Property="TextBlock.Foreground" Value="#FFFFFF" />
+    </Style>
+
+    <!-- Ok-style solid accent button (reference: graph/calibration dialogs). -->
+    <Style Selector="Button.accent">
+      <Setter Property="Background" Value="#F0A03C" />
+      <Setter Property="Foreground" Value="#14181B" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
   </Application.Styles>
 </Application>

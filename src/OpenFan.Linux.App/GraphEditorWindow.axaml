@@ -1,43 +1,65 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="OpenFan.Linux.App.GraphEditorWindow"
-        Title="Graph curve"
-        Width="820" Height="580"
-        Background="#141414"
+        Title="Edit graph"
+        Width="920" Height="660"
+        Background="#171B1F"
         WindowStartupLocation="CenterOwner">
 
-  <Grid ColumnDefinitions="*,300" Margin="14">
+  <Grid RowDefinitions="Auto,*,Auto" Margin="22,16,22,16">
 
-    <Border Grid.Column="0" Background="#1E1E1E" BorderBrush="#2E2E2E"
-            BorderThickness="1" CornerRadius="10" Margin="0,0,14,0">
+    <!-- Header: name + live temp left, hysteresis right (reference: OpenFan-graph.jpg) -->
+    <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+      <StackPanel Grid.Column="0">
+        <TextBlock x:Name="TitleText" FontSize="21" FontWeight="Bold" Foreground="#F2F2F2" />
+        <TextBlock x:Name="TempReadout" Foreground="{StaticResource TextSecondary}" FontSize="13" Margin="0,2,0,0" />
+      </StackPanel>
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+        <TextBlock Text="Hysteresis" VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}" />
+        <NumericUpDown x:Name="HystCBox" Width="84" Minimum="0" Maximum="10" Increment="0.5" FormatString="0.#" />
+        <TextBlock Text="°C ·" VerticalAlignment="Center" />
+        <NumericUpDown x:Name="HystSBox" Width="84" Minimum="0" Maximum="30" Increment="0.5" FormatString="0.#" />
+        <TextBlock Text="sec" VerticalAlignment="Center" />
+      </StackPanel>
+    </Grid>
+
+    <!-- Plot -->
+    <Border Grid.Row="1" Background="#14181B" BorderBrush="#2C363D" BorderThickness="1" CornerRadius="10">
       <Canvas x:Name="Plot" ClipToBounds="True" />
     </Border>
 
-    <StackPanel Grid.Column="1" Spacing="12">
+    <!-- Bottom controls + commit buttons -->
+    <StackPanel Grid.Row="2" Spacing="12" Margin="0,14,0,0">
+      <WrapPanel Orientation="Horizontal">
 
-      <TextBlock Text="Sensor" FontSize="12" Foreground="{StaticResource TextSecondary}" />
-      <ComboBox x:Name="SensorBox" HorizontalAlignment="Stretch" />
+        <TextBlock Text="Name" VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}" Margin="0,0,8,0" />
+        <TextBox x:Name="NameBox" Width="190" Margin="0,0,24,0" Watermark="curve name" />
 
-      <TextBlock Text="Hysteresis (°C)" FontSize="12" Foreground="{StaticResource TextSecondary}" />
-      <NumericUpDown x:Name="HystCBox" Minimum="0" Maximum="10" Increment="0.5" FormatString="0.#" />
+        <TextBlock Text="Sensor" VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}" Margin="0,0,8,0" />
+        <ComboBox x:Name="SensorBox" Width="250" Margin="0,0,24,0" />
 
-      <TextBlock Text="Hold (seconds)" FontSize="12" Foreground="{StaticResource TextSecondary}" />
-      <NumericUpDown x:Name="HystSBox" Minimum="0" Maximum="30" Increment="0.5" FormatString="0.#" />
+        <TextBlock Text="Selected:" VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}" Margin="0,0,8,0" />
+        <NumericUpDown x:Name="SelTempBox" Width="96" Minimum="0" Maximum="150" Increment="0.5" FormatString="0.#" Margin="0,0,4,0" />
+        <TextBlock Text="°C  %" VerticalAlignment="Center" Margin="0,0,4,0" />
+        <NumericUpDown x:Name="SelPctBox" Width="86" Minimum="0" Maximum="100" Increment="1" FormatString="0" Margin="0,0,24,0" />
 
-      <TextBlock Text="Max speed (%)" FontSize="12" Foreground="{StaticResource TextSecondary}" />
-      <NumericUpDown x:Name="MaxSpeedBox" Minimum="10" Maximum="100" Increment="5" FormatString="0" />
+        <TextBlock Text="Max.speed" VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}" Margin="0,0,8,0" />
+        <NumericUpDown x:Name="MaxSpeedBox" Width="86" Minimum="10" Maximum="100" Increment="5" FormatString="0" Margin="0,0,20,0" />
 
-      <TextBlock Text="Points (°C → %)" FontSize="12" Foreground="{StaticResource TextSecondary}" Margin="0,6,0,0" />
-      <ListBox x:Name="PointList" Height="150" />
+        <TextBlock Text="Min.temp" VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}" Margin="0,0,8,0" />
+        <NumericUpDown x:Name="MinTempBox" Width="86" Minimum="0" Maximum="140" Increment="5" FormatString="0" Margin="0,0,20,0" />
 
-      <StackPanel Orientation="Horizontal" Spacing="8">
-        <Button x:Name="RemovePointBtn" Content="Remove selected" />
-        <Button x:Name="ResetPointsBtn" Content="Reset" />
+        <TextBlock Text="Max.temp" VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}" Margin="0,0,8,0" />
+        <NumericUpDown x:Name="MaxTempBox" Width="86" Minimum="10" Maximum="150" Increment="5" FormatString="0" Margin="0,0,20,0" />
+
+        <Button x:Name="AddPointBtn" Content="+ Point" Margin="0,0,8,0" />
+        <Button x:Name="RemovePointBtn" Content="− Point" />
+      </WrapPanel>
+
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12">
+        <Button x:Name="CancelBtn" Content="Cancel" MinWidth="120" Height="36" />
+        <Button x:Name="OkBtn" Classes="accent" Content="Ok" MinWidth="120" Height="36" />
       </StackPanel>
-
-      <TextBlock Text="Click empty space to add a point · drag a point to move it"
-                 FontSize="11" Foreground="{StaticResource TextSecondary}" TextWrapping="Wrap" />
-
     </StackPanel>
   </Grid>
 </Window>
