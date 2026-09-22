@@ -10,6 +10,7 @@ using Avalonia.Threading;
 using OpenFan.Core.Curves;
 using OpenFan.Core.Config;
 using OpenFan.Core.Hardware;
+using OpenFan.Linux.Hw;
 
 namespace OpenFan.Linux.App;
 
@@ -117,18 +118,250 @@ public sealed partial class MainWindow : Window
         };
 
         if (page == "gpus")
+            EnsureGpuPage();
+    }
+
+    // ---- GPUs page -----------------------------------------------------------
+
+    private bool _gpuPageBuilt;
+    private readonly List<(string Uuid, Action<NvmlBackend.GpuSnapshot> Update)> _gpuCardUpdaters = [];
+
+    private void EnsureGpuPage()
+    {
+        if (_gpuPageBuilt)
+            return;
+        _gpuPageBuilt = true;
+        GpusContent.Children.Clear();
+        _gpuCardUpdaters.Clear();
+        foreach (var snap in _app.Nvml.SnapshotAll())
+            GpusContent.Children.Add(BuildGpuCard(snap));
+    }
+
+    public void InvalidateGpuPage() => _gpuPageBuilt = false;
+
+    private static string Gib(double bytes) => $"{bytes / 1073741824.0:0.##}";
+
+    private static string LinkRate(double? kbs) =>
+        kbs is null ? "—" : kbs >= 1024 ? $"{kbs / 1024:0.##} MiB/s" : $"{kbs:0} KiB/s";
+
+    private static T Col<T>(T el, int column) where T : Control
+    {
+        Grid.SetColumn(el, column);
+        return el;
+    }
+
+    private Control BuildGpuCard(NvmlBackend.GpuSnapshot snap)
+    {
+        StackPanel Stat(string label, out TextBlock valueOut)
         {
-            GpusContent.Children.Clear();
-            GpusContent.Children.Add(new TextBlock
+            valueOut = new TextBlock { FontSize = 15, FontWeight = FontWeight.Bold, Foreground = ValueText };
+            return new StackPanel
             {
-                Text = "GPU detail panels — power limits, clocks, PCIe state and per-process usage —\narrive with the helper protocol extension (next task). Fan control on GPU cards\nfrom the Home page already works through openfan-helper.",
-                Foreground = Secondary,
-                FontSize = 14,
-                TextWrapping = TextWrapping.Wrap,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Margin = new Thickness(0, 60, 0, 0),
-            });
+                Spacing = 2,
+                Children =
+                {
+                    new TextBlock { Text = label, Foreground = Secondary, FontSize = 12 },
+                    valueOut,
+                },
+            };
         }
+
+        var tempV = Stat("Temp", out var temp);
+        var powerV = Stat("Power", out var power);
+        var pstateV = Stat("P-State", out var pstate);
+        var fanPctV = Stat("Fan %", out var fanPct);
+        var fanRpmV = Stat("Fan RPM", out var fanRpm);
+        var clocksV = Stat("Clocks", out var clocks);
+
+        var gpuBar = new ProgressBar
+        {
+            Minimum = 0, Maximum = 100, Height = 8, CornerRadius = new CornerRadius(4),
+            Foreground = Accent, Background = new SolidColorBrush(Color.Parse("#2C363D")),
+        };
+        var gpuPct = new TextBlock { Foreground = ValueText, FontSize = 13 };
+        var vramBar = new ProgressBar
+        {
+            Minimum = 0, Maximum = 100, Height = 8, CornerRadius = new CornerRadius(4),
+            Foreground = new SolidColorBrush(Color.Parse("#4FC3F7")), Background = new SolidColorBrush(Color.Parse("#2C363D")),
+        };
+        var vramText = new TextBlock { Foreground = ValueText, FontSize = 13 };
+
+        var pcieLine = new TextBlock { Foreground = Secondary, FontSize = 13, Margin = new Thickness(0, 8, 0, 0) };
+
+        // Power limit editor (writes route through the helper; the driver persists the value itself).
+        var savedLimit = _app.Settings.GpuPowerLimitsW.GetValueOrDefault(snap.Uuid);
+        var powerBox = new NumericUpDown
+        {
+            Width = 120,
+            Minimum = (decimal)Math.Max(50, snap.PowerMinW ?? 50),
+            Maximum = (decimal)(snap.PowerMaxW ?? 800),
+            Value = (decimal)(savedLimit > 0 ? savedLimit : snap.PowerLimitW ?? 0),
+            FormatString = "0",
+            Increment = 5,
+        };
+        var applyBtn = new Button { Content = "Apply", Height = 32 };
+        var powerNote = new TextBlock { Foreground = Secondary, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+        applyBtn.Click += (_, _) =>
+        {
+            var watts = (int)Math.Round(powerBox.Value ?? 0);
+            if (_app.SetGpuPowerLimit(snap.Uuid, watts))
+            {
+                powerNote.Text = $"applied {watts} W";
+                powerNote.Foreground = new SolidColorBrush(Color.Parse("#7BC97B"));
+            }
+            else
+            {
+                powerNote.Text = _app.GpuPowerError ?? "failed";
+                powerNote.Foreground = new SolidColorBrush(Color.Parse("#EF6B6B"));
+            }
+        };
+
+        var procList = new StackPanel { Spacing = 2 };
+        string lastProcKey = "";
+
+        Action<NvmlBackend.GpuSnapshot> updater = sn =>
+        {
+            temp.Text = sn.TempC is null ? "—" : $"{sn.TempC:0}°";
+            power.Text = sn.PowerDrawW is null || sn.PowerLimitW is null
+                ? "—"
+                : $"{sn.PowerDrawW:0.#}/{sn.PowerLimitW:0}W";
+            pstate.Text = sn.PState is null ? "—" : $"P{sn.PState}";
+            fanPct.Text = sn.FanPct is null ? "—" : $"{sn.FanPct:0}%";
+            fanRpm.Text = sn.FanRpm is null ? "—" : $"{sn.FanRpm:0}";
+            clocks.Text = sn.ClockG is null ? "—" : $"G{sn.ClockG} S{sn.ClockS} M{sn.ClockM}";
+
+            gpuBar.Value = sn.UtilGpuPct ?? 0;
+            gpuPct.Text = sn.UtilGpuPct is null ? "—" : $"{sn.UtilGpuPct:0}%";
+            if (sn.MemUsed is not null && sn.MemTotal is not null && sn.MemTotal > 0)
+            {
+                var frac = sn.MemUsed.Value / (double)sn.MemTotal.Value;
+                vramBar.Value = frac * 100;
+                vramText.Text = $"{Gib(sn.MemUsed.Value)} / {Gib(sn.MemTotal.Value)} GiB ({frac * 100:0.#}%)";
+            }
+
+            pcieLine.Text = $"PCIe Gen{sn.PcieGen ?? 0} x{sn.PcieWidth ?? 0}      RX {LinkRate(sn.RxKBs)}      TX {LinkRate(sn.TxKBs)}";
+
+            // Rebuild the process table only when membership actually changed.
+            var key = string.Join("|", sn.Processes.Select(pr => $"{pr.Pid}:{pr.Name}:{pr.MemBytes}"));
+            if (key == lastProcKey)
+                return;
+            lastProcKey = key;
+            procList.Children.Clear();
+            foreach (var pr in sn.Processes.OrderByDescending(pr => pr.MemBytes).Take(12))
+            {
+                var pidTb = Col(new TextBlock { Text = $"{pr.Pid}", FontSize = 13, Foreground = Secondary, TextAlignment = TextAlignment.Right }, 1);
+                var kindTb = Col(new TextBlock { Text = pr.Compute ? "Compute" : "Graphics", FontSize = 13, Foreground = Secondary, TextAlignment = TextAlignment.Right }, 2);
+                var memTb = Col(new TextBlock { Text = $"{pr.MemBytes / 1048576.0:0.#} MiB", FontSize = 13, Foreground = Secondary, TextAlignment = TextAlignment.Right }, 3);
+                procList.Children.Add(new Grid
+                {
+                    ColumnDefinitions = new ColumnDefinitions("*,80,70,110"),
+                    Children =
+                    {
+                        new TextBlock { Text = pr.Name, FontSize = 13, Foreground = ValueText },
+                        pidTb, kindTb, memTb,
+                    },
+                });
+            }
+            if (sn.Processes.Count > 12)
+                procList.Children.Add(new TextBlock { Text = $"+{sn.Processes.Count - 12} more", FontSize = 12, Foreground = Secondary });
+        };
+        _gpuCardUpdaters.Add((snap.Uuid, updater));
+
+        // ---- header row ----
+        var titleBlock = new StackPanel
+        {
+            Spacing = 2,
+            Children =
+            {
+                new TextBlock { Text = $"GPU {snap.Index} · {snap.Name} {snap.PciBus}", FontSize = 17, FontWeight = FontWeight.Bold, Foreground = ValueText },
+                new TextBlock { Text = snap.Uuid, Foreground = Secondary, FontSize = 12 },
+            },
+        };
+        var powerControls = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            VerticalAlignment = VerticalAlignment.Top,
+            Children =
+            {
+                powerNote,
+                new TextBlock { Text = "Power", Foreground = Secondary, VerticalAlignment = VerticalAlignment.Center },
+                powerBox,
+                new TextBlock { Text = "W", Foreground = Secondary, VerticalAlignment = VerticalAlignment.Center },
+                applyBtn,
+            },
+        };
+        Grid.SetColumn(powerControls, 1);
+
+        // ---- utilization bars ----
+        var gpuBarPanel = new StackPanel
+        {
+            Spacing = 4,
+            Margin = new Thickness(0, 0, 24, 0),
+            Children =
+            {
+                new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Children = { new TextBlock { Text = "GPU", FontWeight = FontWeight.SemiBold }, gpuPct } },
+                gpuBar,
+            },
+        };
+        var vramLabel = new TextBlock { Text = "VRAM", FontWeight = FontWeight.SemiBold };
+        Grid.SetColumn(vramText, 1);
+        var vramBarPanel = Col(new StackPanel
+        {
+            Spacing = 4,
+            Children =
+            {
+                new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Children = { vramLabel, vramText } },
+                vramBar,
+            },
+        }, 1);
+
+        // ---- process header ----
+        var procHeader = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,80,70,110"),
+            Margin = new Thickness(0, 6, 0, 2),
+            Children =
+            {
+                new TextBlock { Text = "Processes", Foreground = Secondary, FontSize = 12 },
+                Col(new TextBlock { Text = "PID", Foreground = Secondary, FontSize = 12, TextAlignment = TextAlignment.Right }, 1),
+                Col(new TextBlock { Text = "Kind", Foreground = Secondary, FontSize = 12, TextAlignment = TextAlignment.Right }, 2),
+                Col(new TextBlock { Text = "VRAM", Foreground = Secondary, FontSize = 12, TextAlignment = TextAlignment.Right }, 3),
+            },
+        };
+
+        return new Border
+        {
+            Margin = new Thickness(0, 0, 0, 18),
+            Padding = new Thickness(18, 14, 18, 16),
+            Background = CardBg,
+            BorderBrush = CardBorder,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Child = new StackPanel
+            {
+                Spacing = 10,
+                Children =
+                {
+                    new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Children = { titleBlock, powerControls } },
+                    new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), Children = { gpuBarPanel, vramBarPanel } },
+                    new Grid { ColumnDefinitions = new ColumnDefinitions("1.2*,1.4*,0.8*,1.2*,1.2*,1.6*"), Children = { tempV, powerV, pstateV, fanPctV, fanRpmV, clocksV } },
+                    pcieLine,
+                    procHeader,
+                    procList,
+                },
+            },
+        };
+    }
+
+    private void UpdateGpuPage()
+    {
+        if (!_gpuPageBuilt || !GpusPanel.IsVisible)
+            return;
+        foreach (var snap in _app.Nvml.SnapshotAll())
+            foreach (var (uuid, update) in _gpuCardUpdaters)
+                if (uuid == snap.Uuid)
+                    try { update(snap); } catch { /* stale card — next tick */ }
     }
 
     private string GpuSubtitle()
@@ -439,6 +672,7 @@ public sealed partial class MainWindow : Window
             try { update(); } catch { /* a stale card mid-rebuild — next tick is fine */ }
         }
 
+        UpdateGpuPage();
         UpdateStatus();
     }
 

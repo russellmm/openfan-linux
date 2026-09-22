@@ -10,6 +10,9 @@ public sealed class AppSettings
     public bool StartMinimized { get; set; }
     public bool ApplyCurves { get; set; }
 
+    /// <summary>GPU power limits in watts keyed by NVML uuid; re-applied at startup via helper.</summary>
+    public Dictionary<string, int> GpuPowerLimitsW { get; set; } = [];
+
     // Window geometry (Linux app): restored on launch, saved when the window moves/resizes/closes.
     public int? WindowX { get; set; }
     public int? WindowY { get; set; }

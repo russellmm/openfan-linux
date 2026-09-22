@@ -22,7 +22,7 @@ if (!nvml.Available)
 var socketPath = Environment.GetEnvironmentVariable("OPENFAN_HELPER_SOCKET") ?? "/run/openfan/helper.sock";
 var verbose = Environment.GetEnvironmentVariable("OPENFAN_HELPER_VERBOSE") == "1";
 
-var server = new HelperServer(nvml, socketPath);
+var server = new HelperServer(nvml, socketPath, nvml);
 server.Start();
 server.ApplyGroupAccess("openfan");
 

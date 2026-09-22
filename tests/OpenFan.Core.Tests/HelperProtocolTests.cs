@@ -5,6 +5,57 @@ namespace OpenFan.Core.Tests;
 
 public class HelperProtocolTests
 {
+
+    // ---- power command (GPU page) ----
+
+    private sealed class RecordingPowerWriter : IGpuPowerWriter
+    {
+        public List<(string Uuid, int Watts)> Calls { get; } = [];
+        public bool Result { get; set; } = true;
+        public bool SetPowerLimit(string uuid, int watts)
+        {
+            Calls.Add((uuid, watts));
+            return Result;
+        }
+    }
+
+    [Fact]
+    public void Power_routes_uuid_and_watts_to_writer()
+    {
+        var writer = new RecordingPowerWriter();
+        var session = new HelperSession(new RecordingActuator(), writer);
+
+        session.HandleLine("power GPU-6d3eab54-984e-f1bc-68eb-ee4948e6c3b0 250").Should().Be("ok");
+        writer.Calls.Should().Equal(("GPU-6d3eab54-984e-f1bc-68eb-ee4948e6c3b0", 250));
+    }
+
+    [Fact]
+    public void Power_without_writer_is_rejected()
+        => new HelperSession(new RecordingActuator()).HandleLine("power GPU-abcdef12 250").Should().StartWith("err");
+
+    [Theory]
+    [InlineData("power notauuid 250")]
+    [InlineData("power GPU-ab 250")]                  // uuid too short
+    [InlineData("power GPU-abcdef12 0")]
+    [InlineData("power GPU-abcdef12 5000")]
+    [InlineData("power GPU-abcdef12 lotsa")]
+    [InlineData("power GPU-abcdef12")]
+    public void Power_rejects_malformed_input(string line)
+    {
+        var writer = new RecordingPowerWriter();
+        var session = new HelperSession(new RecordingActuator(), writer);
+        session.HandleLine(line).Should().StartWith("err");
+        writer.Calls.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Power_writer_failure_surfaces_as_error()
+    {
+        var writer = new RecordingPowerWriter { Result = false };
+        var session = new HelperSession(new RecordingActuator(), writer);
+        session.HandleLine("power GPU-abcdef12 250").Should().StartWith("err");
+    }
+
     private const string FanId = "nvml:GPU-abc-1234:fan:0";
 
     [Fact]

@@ -58,6 +58,73 @@ internal static class NvmlNative
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int nvmlDeviceSetDefaultFanSpeed_v2(nint device, uint fan);
 
+    // ---- GPU page telemetry (verified against driver 595 via ctypes probe) ----
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int nvmlDeviceGetPerformanceState(nint device, out uint state);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int nvmlDeviceGetUtilizationRates(nint device, ref Utilization rates);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int nvmlDeviceGetMemoryInfo(nint device, ref MemoryUsage memory);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int nvmlDeviceGetPowerUsage(nint device, out uint milliWatts);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int nvmlDeviceGetPowerManagementLimit(nint device, out uint milliWatts);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int nvmlDeviceGetPowerManagementLimitConstraints(nint device, out uint minMW, out uint maxMW);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int nvmlDeviceSetPowerManagementLimit(nint device, uint milliWatts);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int nvmlDeviceGetClockInfo(nint device, uint clockType, out uint MHz);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int nvmlDeviceGetCurrPcieLinkGeneration(nint device, out uint gen);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int nvmlDeviceGetCurrPcieLinkWidth(nint device, out uint width);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int nvmlDeviceGetPcieThroughput(nint device, uint counter, out uint kiloBytesPerSec);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int nvmlDeviceGetGraphicsRunningProcesses_v3(nint device, ref uint count, ProcessInfo[]? infos);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int nvmlDeviceGetComputeRunningProcesses_v3(nint device, ref uint count, ProcessInfo[]? infos);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Utilization
+    {
+        public byte Gpu;
+        public byte Memory;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MemoryUsage
+    {
+        public ulong Total;
+        public ulong Free;
+        public ulong Used;
+    }
+
+    // nvmlProcessInfo_v2/v3 layout (verified): pid, pad, usedGpuMemory, gpuInstanceId, computeInstanceId.
+    [StructLayout(LayoutKind.Sequential)]
+    public struct ProcessInfo
+    {
+        public uint Pid;
+        public uint Pad;
+        public ulong UsedGpuMemory;
+        public uint GpuInstanceId;
+        public uint ComputeInstanceId;
+    }
+
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int nvmlDeviceGetMinMaxFanSpeed(nint device, out uint minSpeed, out uint maxSpeed);
 
@@ -107,7 +174,7 @@ internal static class NvmlNative
 /// NVIDIA GPU fans + core temp via NVML. Ids: nvml:{uuid}:fan|tach:{n}, nvml:{uuid}:temp:core —
 /// identical to Windows so GPU curves could round-trip later (spec §5).
 /// </summary>
-public sealed class NvmlBackend : ISensorBackend, IFanActuator
+public sealed class NvmlBackend : ISensorBackend, IFanActuator, IGpuPowerWriter
 {
     public const string BackendName = "nvml";
 
@@ -245,6 +312,137 @@ public sealed class NvmlBackend : ISensorBackend, IFanActuator
                 readings[$"nvml:{g.Uuid}:tach:{f}"] = rpm;
             }
         }
+    }
+
+    // ---- GPU page snapshots + power limit (helper-side write) ----------------
+
+    public sealed record GpuProcessInfo(string Name, int Pid, bool Compute, ulong MemBytes);
+
+    public sealed record GpuSnapshot(
+        int Index, string Uuid, string Name, string PciBus,
+        double? TempC, double? UtilGpuPct, double? MemUsed, double? MemTotal,
+        double? PowerDrawW, double? PowerLimitW, double? PowerMinW, double? PowerMaxW, int? PState,
+        double? FanPct, double? FanRpm, int? ClockG, int? ClockS, int? ClockM,
+        int? PcieGen, int? PcieWidth, double? RxKBs, double? TxKBs,
+        IReadOnlyList<GpuProcessInfo> Processes);
+
+    public IReadOnlyList<GpuSnapshot> SnapshotAll()
+    {
+        var list = new List<GpuSnapshot>();
+        if (!Available)
+            return list;
+
+        foreach (var g in _gpus)
+        {
+            double? temp = NvmlNative.nvmlDeviceGetTemperature(g.Handle, NvmlNative.TempGpu, out var t) == NvmlNative.Success ? t : null;
+
+            double? utilGpu = null;
+            var util = new NvmlNative.Utilization();
+            if (NvmlNative.nvmlDeviceGetUtilizationRates(g.Handle, ref util) == NvmlNative.Success)
+                utilGpu = util.Gpu;
+
+            ulong? memUsed = null, memTotal = null;
+            var mem = new NvmlNative.MemoryUsage();
+            if (NvmlNative.nvmlDeviceGetMemoryInfo(g.Handle, ref mem) == NvmlNative.Success)
+            {
+                memUsed = mem.Used;
+                memTotal = mem.Total;
+            }
+
+            double? drawW = NvmlNative.nvmlDeviceGetPowerUsage(g.Handle, out var mw) == NvmlNative.Success ? mw / 1000.0 : null;
+            double? limitW = NvmlNative.nvmlDeviceGetPowerManagementLimit(g.Handle, out var limMw) == NvmlNative.Success ? limMw / 1000.0 : null;
+            double? minW = null, maxW = null;
+            if (NvmlNative.nvmlDeviceGetPowerManagementLimitConstraints(g.Handle, out var cMin, out var cMax) == NvmlNative.Success)
+            {
+                minW = cMin / 1000.0;
+                maxW = cMax > 0 ? cMax / 1000.0 : null; // some vBIOS report 0 = unbounded
+            }
+
+            int? pstate = NvmlNative.nvmlDeviceGetPerformanceState(g.Handle, out var ps) == NvmlNative.Success ? (int)ps : null;
+
+            double? fanPct = g.FanCount > 0 && NvmlNative.nvmlDeviceGetFanSpeed_v2(g.Handle, 0, out var fs) == NvmlNative.Success ? fs : null;
+            double? fanRpm = null;
+            if (g.FanCount > 0)
+            {
+                var info = new NvmlNative.FanSpeedInfo { version = NvmlNative.FanSpeedInfoV1, fan = 0 };
+                if (NvmlNative.nvmlDeviceGetFanSpeedRPM(g.Handle, ref info) == NvmlNative.Success)
+                    fanRpm = info.speedRPM;
+            }
+
+            int? clk(int type) => NvmlNative.nvmlDeviceGetClockInfo(g.Handle, (uint)type, out var v) == NvmlNative.Success ? (int)v : null;
+
+            int? gen = NvmlNative.nvmlDeviceGetCurrPcieLinkGeneration(g.Handle, out var gn) == NvmlNative.Success ? (int)gn : null;
+            int? width = NvmlNative.nvmlDeviceGetCurrPcieLinkWidth(g.Handle, out var wd) == NvmlNative.Success ? (int)wd : null;
+            double? rx = NvmlNative.nvmlDeviceGetPcieThroughput(g.Handle, 1, out var r) == NvmlNative.Success ? r : null;
+            double? tx = NvmlNative.nvmlDeviceGetPcieThroughput(g.Handle, 0, out var x) == NvmlNative.Success ? x : null;
+
+            list.Add(new GpuSnapshot(g.Index, g.Uuid, g.Name, g.PciBus,
+                temp, utilGpu, memUsed, memTotal, drawW, limitW, minW, maxW, pstate,
+                fanPct, fanRpm, clk(0), clk(1), clk(2), gen, width, rx, tx,
+                ReadProcesses(g.Handle)));
+        }
+        return list;
+    }
+
+    private static IReadOnlyList<GpuProcessInfo> ReadProcesses(nint handle)
+    {
+        var procs = new List<GpuProcessInfo>();
+        Collect(false);
+        Collect(true);
+        return procs;
+
+        void Collect(bool compute)
+        {
+            uint n = 0;
+            var rc = compute
+                ? NvmlNative.nvmlDeviceGetComputeRunningProcesses_v3(handle, ref n, null)
+                : NvmlNative.nvmlDeviceGetGraphicsRunningProcesses_v3(handle, ref n, null);
+            if (rc is not (NvmlNative.Success or 7) || n == 0) // 7 = INSUFFICIENT_SIZE (count probe)
+                return;
+            var arr = new NvmlNative.ProcessInfo[n];
+            rc = compute
+                ? NvmlNative.nvmlDeviceGetComputeRunningProcesses_v3(handle, ref n, arr)
+                : NvmlNative.nvmlDeviceGetGraphicsRunningProcesses_v3(handle, ref n, arr);
+            if (rc != NvmlNative.Success)
+                return;
+            foreach (var pi in arr[..(int)n])
+            {
+                var name = TryReadComm((int)pi.Pid);
+                procs.Add(new GpuProcessInfo(name, (int)pi.Pid, compute, pi.UsedGpuMemory));
+            }
+        }
+
+        static string TryReadComm(int pid)
+        {
+            try
+            {
+                return File.ReadAllText($"/proc/{pid}/comm").Trim();
+            }
+            catch (IOException)
+            {
+                return "?";
+            }
+        }
+    }
+
+    /// <summary>Root/helper-side only in practice: NVML refuses power-limit writes from user sessions.</summary>
+    public bool SetPowerLimit(string uuid, int watts)
+    {
+        var g = _gpus.FirstOrDefault(x => x.Uuid.Equals(uuid, StringComparison.OrdinalIgnoreCase));
+        if (g is null || watts <= 0)
+            return false;
+        var rc = NvmlNative.nvmlDeviceSetPowerManagementLimit(g.Handle, (uint)(watts * 1000));
+        if (rc != NvmlNative.Success)
+        {
+            LastWriteError = rc switch
+            {
+                NvmlNative.ErrorNoPermission => "power limit needs root — run through openfan-helper",
+                _ => $"NVML rejected power limit ({rc}) — check constraints",
+            };
+            return false;
+        }
+        LastWriteError = null;
+        return true;
     }
 
     public bool SetPercent(string controlId, int percent)

@@ -18,10 +18,19 @@ namespace OpenFan.Linux.Hw;
 /// Each connection owns what it set: on disconnect (clean or SIGKILL'd GUI) the
 /// session restores those fans to NVML default so nothing stays pinned.
 /// </summary>
-public sealed class HelperSession(IFanActuator actuator)
+/// <summary>Optional capability: apply GPU power limits (NvmlBackend implements this; the helper passes it through).</summary>
+public interface IGpuPowerWriter
+{
+    bool SetPowerLimit(string uuid, int watts);
+}
+
+public sealed class HelperSession(IFanActuator actuator, IGpuPowerWriter? power = null)
 {
     private static readonly Regex NvmlFanId = new(
         @"^nvml:[A-Za-z0-9._-]+:fan:[0-9]+$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static readonly Regex GpuUuid = new(
+        @"^GPU-[A-Za-z0-9_-]{6,}$", RegexOptions.Compiled);
 
     private readonly HashSet<string> _owned = new(StringComparer.OrdinalIgnoreCase);
 
@@ -56,6 +65,16 @@ public sealed class HelperSession(IFanActuator actuator)
                 _owned.Remove(parts[1]);
                 return ok ? "ok" : "err default failed";
 
+            case "power" when parts.Length == 3:
+                if (power is null)
+                    return "err power control not available";
+                if (!GpuUuid.IsMatch(parts[1]))
+                    return "err expected a GPU uuid (GPU-...)";
+                if (!int.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var watts)
+                    || watts is < 1 or > 2000)
+                    return "err watts must be 1-2000";
+                return power.SetPowerLimit(parts[1], watts) ? "ok" : "err power limit rejected";
+
             case "quit":
                 return "bye";
 
@@ -77,7 +96,7 @@ public sealed class HelperSession(IFanActuator actuator)
 /// Unix-socket accept loop hosting HelperSession instances. Lives in the library so
 /// tests run it against a fake actuator; openfan-helper is a thin root wrapper.
 /// </summary>
-public sealed class HelperServer(IFanActuator actuator, string socketPath) : IAsyncDisposable
+public sealed class HelperServer(IFanActuator actuator, string socketPath, IGpuPowerWriter? power = null) : IAsyncDisposable
 {
     private readonly Socket _listener = new(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
     private readonly CancellationTokenSource _cts = new();
@@ -150,7 +169,7 @@ public sealed class HelperServer(IFanActuator actuator, string socketPath) : IAs
 
     private async Task ServeClientAsync(Socket client)
     {
-        var session = new HelperSession(actuator);
+        var session = new HelperSession(actuator, power);
         try
         {
             using (client)

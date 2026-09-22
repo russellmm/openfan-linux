@@ -36,6 +36,9 @@ public sealed class NvmlHelperClient(string? socketPath = null) : IFanActuator, 
 
     public bool Ping() => Transact("ping");
 
+    /// <summary>GPU power limit (persisted by the driver; not restored on disconnect — that is intended).</summary>
+    public bool TrySetPowerLimit(string uuid, int watts) => Transact($"power {uuid} {watts}");
+
     private bool Transact(string command)
     {
         lock (_gate)

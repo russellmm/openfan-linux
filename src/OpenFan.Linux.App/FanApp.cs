@@ -46,6 +46,29 @@ public sealed class FanApp : IDisposable
         Actuator = new CompositeActuator(("hwmon", Hwmon), ("nvml", _nvmlRoute));
         Controller = new FanController(Actuator);
         RefreshInventory(force: true);
+
+        foreach (var (uuid, watts) in Settings.GpuPowerLimitsW.ToList())
+            SetGpuPowerLimit(uuid, watts); // best effort; failures surface as GpuPowerError
+    }
+
+    /// <summary>Most recent GPU power-limit failure (null when healthy).</summary>
+    public string? GpuPowerError { get; private set; }
+
+    /// <summary>Apply + persist a GPU power limit; routes through the helper when unprivileged.</summary>
+    public bool SetGpuPowerLimit(string uuid, int watts)
+    {
+        var ok = NvmlHelper.IsAvailable
+            ? NvmlHelper.TrySetPowerLimit(uuid, watts)
+            : Nvml.SetPowerLimit(uuid, watts);
+        if (!ok)
+        {
+            GpuPowerError = NvmlHelper.IsAvailable ? NvmlHelper.LastError : Nvml.LastWriteError ?? "power limit failed";
+            return false;
+        }
+        GpuPowerError = null;
+        Settings.GpuPowerLimitsW[uuid] = watts;
+        Save();
+        return true;
     }
 
     public IReadOnlyList<HardwareItem> Inventory => _inventory;
