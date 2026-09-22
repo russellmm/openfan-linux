@@ -337,6 +337,35 @@ public sealed partial class MainWindow : Window
             UpdateValues();
         };
 
+        // Calibrate link — only where a tachometer exists to verify speed (GPU fans have none
+        // on this driver, so their commanded % is taken at face value).
+        var links = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        var tachId = _app.PairedTachId(item);
+        if (_app.Inventory.Any(i => i.Id == tachId))
+        {
+            var calLink = new Button
+            {
+                Content = string.IsNullOrWhiteSpace(existingCfg?.Name) ? "Calibrate" : $"Calibrate {existingCfg!.Name}",
+                Background = null,
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(0),
+                Foreground = Accent,
+                FontWeight = FontWeight.SemiBold,
+            };
+            calLink.Click += (_, _) =>
+                new CalibrationWindow(_app, item).Show(this); // hands the fan over; resumes on close
+            links.Children.Add(calLink);
+
+            if (existingCfg is { Calibration.Count: >= 2 })
+                links.Children.Add(new TextBlock
+                {
+                    Text = $"calibrated ✓ ({existingCfg.Calibration.Count} pts)",
+                    Foreground = Secondary,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    FontSize = 12,
+                });
+        }
+
         var card = new Border
         {
             Width = 300,
@@ -349,7 +378,7 @@ public sealed partial class MainWindow : Window
             Child = new StackPanel
             {
                 Spacing = 5,
-                Children = { title, group, check, mode, valueLine, errorLine },
+                Children = { title, group, check, mode, valueLine, links, errorLine },
             },
         };
 

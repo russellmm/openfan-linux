@@ -58,6 +58,12 @@ public sealed class FanApp : IDisposable
     public double? Reading(string id) => _readings.GetValueOrDefault(id);
 
     /// <summary>Tach paired with a control for display: nvml fan0↔tach0, hwmon pwm4↔fan4.</summary>
+    /// <summary>Id of the tach paired with a fan control (nvml:{uuid}:tach:n / hwmon …:fan:n).</summary>
+    public string PairedTachId(HardwareItem control) =>
+        control.Backend.Equals("nvml", StringComparison.OrdinalIgnoreCase)
+            ? control.Id.Replace(":fan:", ":tach:")
+            : control.Id.Replace(":pwm:", ":fan:");
+
     public double? PairedRpm(HardwareItem control)
     {
         var pairedId = control.Backend.Equals("nvml", StringComparison.OrdinalIgnoreCase)
@@ -132,6 +138,11 @@ public sealed class FanApp : IDisposable
 
     /// <summary>Exit / Apply-off path: give every owned control back to auto.</summary>
     public void RestoreAll() => Controller.RestoreAll();
+
+    /// <summary>Calibration direct-drive: bypasses the controller (control must be disabled first).</summary>
+    public bool ManualSetPercent(string controlId, int percent) => Actuator.SetPercent(controlId, percent);
+
+    public void ManualRestore(string controlId) => Actuator.SetDefault(controlId);
 
     public void Dispose()
     {
