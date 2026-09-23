@@ -1075,6 +1075,20 @@ public sealed partial class MainWindow : Window
         };
         general.Children.Add(SettingRow("Refresh interval (ms)", refresh));
 
+        var cardScale = new NumericUpDown
+        {
+            Minimum = 60, Maximum = 130, Increment = 5,
+            Value = (decimal)Math.Clamp(_app.Settings.CardScale * 100, 60, 130), Width = 120, FormatString = "{0:0} %",
+        };
+        cardScale.ValueChanged += (_, _) =>
+        {
+            _app.Settings.CardScale = (double)cardScale.Value / 100.0;
+            _app.Save();
+            RebuildCards();      // re-wrap every Home card at the new scale
+            RebuildCurveCards();
+        };
+        general.Children.Add(SettingRow("Card size", cardScale, "Shrinks or grows the Home cards and their text."));
+
         grid.Children.Add(general);
 
         // ---- column 2: Hidden controls ----
@@ -1522,7 +1536,7 @@ public sealed partial class MainWindow : Window
         {
             Item = item, ValueLine = valueLine, CurveCheck = check, Mode = mode, ErrorLine = errorLine,
         };
-        return card;
+        return Scaled(card);
     }
 
     private void UpdateValues()
@@ -1699,7 +1713,7 @@ public sealed partial class MainWindow : Window
 
         body.Children.Add(noteLine);
 
-        return new Border
+        return Scaled(new Border
         {
             Width = curve.Type.Equals("mix", StringComparison.OrdinalIgnoreCase) ? 320 : 300,
             Margin = new Thickness(6),
@@ -1709,7 +1723,7 @@ public sealed partial class MainWindow : Window
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
             Child = body,
-        };
+        });
     }
 
     private void BuildFlatBody(CurveSettings curve, StackPanel body)
@@ -2272,6 +2286,15 @@ public sealed partial class MainWindow : Window
     }
 
     // ---- shared helpers -----------------------------------------------------
+
+    /// <summary>Optional uniform scale (Settings ▸ Card size): shrinks/grows a Home card and its text as one unit.</summary>
+    private Control Scaled(Control card)
+    {
+        var s = _app.Settings.CardScale;
+        if (s <= 0 || Math.Abs(s - 1.0) < 0.005)
+            return card;
+        return new LayoutTransformControl { LayoutTransform = new ScaleTransform(s, s), Child = card };
+    }
 
     private void OnGlobalPointerPressedForBlur(object? sender, PointerPressedEventArgs e)
     {

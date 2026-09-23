@@ -24,6 +24,8 @@ public sealed class AppSettings
     public string AccentColor { get; set; } = AccentHex.Default;
     public string? NamedConfigPath { get; set; }
     public int RefreshMs { get; set; } = 1000;
+    /// <summary>Uniform scale for Home cards incl. text (Settings ▸ Card size). 1.0 = native.</summary>
+    public double CardScale { get; set; } = 1.0;
     public int StartupDelaySeconds { get; set; }
     public SourceSettings Sources { get; set; } = new();
     public Dictionary<string, string> SensorNicknames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -126,6 +128,8 @@ public sealed class SettingsStore
         loaded.SensorNicknames ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         loaded.PowerTargetsWatts ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         loaded.AccentColor = AccentHex.Normalize(loaded.AccentColor);
+        if (loaded.CardScale is not (>= 0.6 and <= 1.3)) // also catches NaN/legacy 0
+            loaded.CardScale = 1.0;
         return loaded;
     }
 
