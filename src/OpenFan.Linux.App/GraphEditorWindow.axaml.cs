@@ -50,7 +50,7 @@ public sealed partial class GraphEditorWindow : Window
         {
             var item = new ComboBoxItem { Tag = t.Id };
             SensorBox.Items.Add(item);
-            _sensorItems.Add((item, t.Id, $"{app.SensorLabel(t)}  ·  {t.Group}"));
+            _sensorItems.Add((item, t.Id, app.SensorLabel(t))); // sensor name only — group is noise here
         }
         SensorBox.SelectedItem = SensorBox.Items
             .OfType<ComboBoxItem>().FirstOrDefault(i => (string?)i.Tag == _edit.SensorId);

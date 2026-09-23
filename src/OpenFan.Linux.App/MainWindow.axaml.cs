@@ -1776,7 +1776,7 @@ public sealed partial class MainWindow : Window
         {
             var item = new ComboBoxItem { Tag = t.Id };
             sensorBox.Items.Add(item);
-            sensorItems.Add((item, t.Id, $"{_app.SensorLabel(t)}  ·  {t.Group}"));
+            sensorItems.Add((item, t.Id, _app.SensorLabel(t))); // sensor name only — group is noise here
         }
         var suppress = false;
         int WantedIndex() => sensorItems.FindIndex(s => s.Id == curve.SensorId);
@@ -2108,11 +2108,31 @@ public sealed partial class MainWindow : Window
     private static string ProfilesDir =>
         Path.Combine(Path.GetDirectoryName(SettingsStore.DefaultPath) ?? ".", "profiles");
 
+    /// <summary>Floating confirmation at the bottom of the window; auto-hides after 3 s.</summary>
+    private DispatcherTimer? _toastTimer;
+
+    private void ShowToast(string message)
+    {
+        ToastText.Text = message;
+        Toast.IsVisible = true;
+        if (_toastTimer is null)
+        {
+            _toastTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+            _toastTimer.Tick += (_, _) =>
+            {
+                _toastTimer!.Stop();
+                Toast.IsVisible = false;
+            };
+        }
+        _toastTimer.Stop();
+        _toastTimer.Start();
+    }
+
     /// <summary>Ctrl+S / menu: save into whichever config file is currently active.</summary>
     private void OnSaveConfig(object? sender, RoutedEventArgs e)
     {
         _app.Save();
-        StatusNote.Text = $"Saved to {Path.GetFileName(_app.ActiveConfigPath)}";
+        ShowToast($"Configuration saved — {Path.GetFileName(_app.ActiveConfigPath)}");
     }
 
     /// <summary>Ctrl+N: start a fresh empty configuration in a new file and switch to it.</summary>
@@ -2133,7 +2153,7 @@ public sealed partial class MainWindow : Window
                 new SettingsStore(path).Save(new AppSettings()); // empty config on disk first…
                 _app.SwitchConfig(path);                          // …then load it as the live settings
                 AfterConfigSwitch();
-                StatusNote.Text = $"New configuration {Path.GetFileName(path)} — changes save here";
+                ShowToast($"New configuration — {Path.GetFileName(path)} (changes save here)");
             }
         }
         catch (Exception ex)
@@ -2194,7 +2214,7 @@ public sealed partial class MainWindow : Window
                 new SettingsStore(path).Save(_app.Settings); // write FIRST…
                 _app.SwitchConfig(path);                      // …then make it the active config file
                 UpdateTitle();
-                StatusNote.Text = $"Saved — now using {Path.GetFileName(path)}";
+                ShowToast($"Configuration saved — {Path.GetFileName(path)}");
             }
         }
         catch (Exception ex)
@@ -2205,7 +2225,7 @@ public sealed partial class MainWindow : Window
             new SettingsStore(path).Save(_app.Settings); // write FIRST (picker unavailable)
             _app.SwitchConfig(path);
             UpdateTitle();
-            StatusNote.Text = $"File dialog unavailable ({ex.GetType().Name}) — saved to {path}";
+            ShowToast($"Configuration saved — {Path.GetFileName(path)}");
         }
     }
 
@@ -2226,7 +2246,7 @@ public sealed partial class MainWindow : Window
 
             _app.SwitchConfig(path); // load + all future changes save into this file
             AfterConfigSwitch();
-            StatusNote.Text = $"Now using {Path.GetFileName(path)} — changes save here";
+            ShowToast($"Configuration loaded — {Path.GetFileName(path)} (changes save here)");
         }
         catch (Exception ex)
         {

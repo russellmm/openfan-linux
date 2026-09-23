@@ -135,6 +135,14 @@
                  Foreground="{StaticResource TextSecondary}" FontSize="14"
                  VerticalAlignment="Center" HorizontalAlignment="Center" TextWrapping="Wrap"
                  MaxWidth="560" TextAlignment="Center" />
+
+      <!-- Transient toast (config saved/loaded …) — floats above every page -->
+      <Border x:Name="Toast" Grid.RowSpan="3" IsVisible="False" ZIndex="200" IsHitTestVisible="False"
+              HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,84"
+              Background="#242C33" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1"
+              CornerRadius="9" Padding="20,11">
+        <TextBlock x:Name="ToastText" Foreground="#F2F2F2" FontSize="14" />
+      </Border>
     </Grid>
   </Grid>
 </Window>
