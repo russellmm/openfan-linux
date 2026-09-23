@@ -21,6 +21,7 @@ cd ../headless-lab && ./hd start            # idempotent Xvfb :99 + Openbox
 ./hd diff a.png b.png                       # changed-pixel count proves UI reacted
 ```
 Loop: **shot → read image → act → shot**. Monitor-only is safe; ASK before Apply-curves/calibration.
+⚠ A lab instance holds the single-instance lock (/run/user/1000/openfan.lock) — `./hd kill` BEFORE relaunching the :0 GUI.
 Lab gotchas that bit me (see lab README for the full list):
 - Clicks land DURING a card rebuild silently no-op → sleep ~2 s after launch/rebuild-triggering actions.
 - Code-built menus: set `btn.Flyout = fly` (auto-opens); manual ShowAttachedFlyout was flaky under automation.
