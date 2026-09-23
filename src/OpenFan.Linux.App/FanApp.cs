@@ -86,18 +86,17 @@ public sealed class FanApp : IDisposable
     public string SensorLabel(HardwareItem item) =>
         Settings.SensorAliases.GetValueOrDefault(item.Id, item.Name);
 
-    public string PairedTachId(HardwareItem control) =>
-        control.Backend.Equals("nvml", StringComparison.OrdinalIgnoreCase)
-            ? control.Id.Replace(":fan:", ":tach:")
-            : control.Id.Replace(":pwm:", ":fan:");
-
-    public double? PairedRpm(HardwareItem control)
+    public string PairedTachId(HardwareItem control)
     {
-        var pairedId = control.Backend.Equals("nvml", StringComparison.OrdinalIgnoreCase)
+        var cfg = Settings.Controls.FirstOrDefault(c => c.Id == control.Id);
+        if (!string.IsNullOrWhiteSpace(cfg?.PairedTachId))
+            return cfg!.PairedTachId!; // user override from the card's ⋮ menu
+        return control.Backend.Equals("nvml", StringComparison.OrdinalIgnoreCase)
             ? control.Id.Replace(":fan:", ":tach:")
             : control.Id.Replace(":pwm:", ":fan:");
-        return _readings.GetValueOrDefault(pairedId);
     }
+
+    public double? PairedRpm(HardwareItem control) => _readings.GetValueOrDefault(PairedTachId(control));
 
     public void RefreshInventory(bool force = false)
     {

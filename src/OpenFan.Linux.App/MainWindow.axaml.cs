@@ -751,11 +751,158 @@ public sealed partial class MainWindow : Window
     private void RebuildCards()
     {
         _cards.Clear();
+        var controls = _app.Inventory.Where(i => i.Kind == HardwareKind.Control).ToList();
+
+        // User order first (ControlOrder), unranked cards keep natural position after them.
+        var order = _app.Settings.ControlOrder;
+        controls = controls
+            .Select((c, nat) => (c, nat))
+            .OrderBy(x => order.IndexOf(x.c.Id) is var ix && ix >= 0 ? ix : int.MaxValue)
+            .ThenBy(x => x.nat)
+            .Select(x => x.c)
+            .ToList();
+
         var items = new List<Control>();
-        foreach (var item in _app.Inventory.Where(i => i.Kind == HardwareKind.Control))
-            items.Add(BuildCard(item));
+        var hidden = new List<HardwareItem>();
+        foreach (var item in controls)
+        {
+            if (_app.Settings.Controls.FirstOrDefault(c => c.Id == item.Id)?.Hidden == true)
+                hidden.Add(item);
+            else
+                items.Add(BuildCard(item));
+        }
+
+        foreach (var h in hidden)
+        {
+            var name = _app.Settings.Controls.FirstOrDefault(c => c.Id == h.Id)?.Name is { Length: > 0 } n ? n : h.Name;
+            var unhide = new Button
+            {
+                Content = $"{name} — unhide",
+                Background = null,
+                BorderThickness = new Thickness(1),
+                BorderBrush = CardBorder,
+                Foreground = Secondary,
+                FontSize = 12,
+                Margin = new Thickness(6),
+                Padding = new Thickness(10, 5, 10, 5),
+            };
+            unhide.Click += (_, _) =>
+            {
+                var cfg = FindOrCreateCfg(h);
+                cfg.Hidden = false;
+                _app.Save();
+                RebuildCards();
+            };
+            items.Add(unhide);
+        }
+
         Cards.ItemsSource = items;
         UpdateValues();
+    }
+
+    /// <summary>⋮ menu for a fan card: tach pairing, ordering, hide, release.</summary>
+    private Button BuildCardMenu(HardwareItem item)
+    {
+        var fly = new MenuFlyout();
+
+        // Pair tachometer — Auto (id swap) plus every tach in the inventory.
+        var pair = new MenuItem { Header = "Pair tachometer" };
+        var current = _app.PairedTachId(item);
+        var autoId = item.Backend.Equals("nvml", StringComparison.OrdinalIgnoreCase)
+            ? item.Id.Replace(":fan:", ":tach:")
+            : item.Id.Replace(":pwm:", ":fan:");
+
+        var autoMi = new MenuItem { Header = "Auto", IsChecked = current == autoId };
+        autoMi.Click += (_, _) =>
+        {
+            FindOrCreateCfg(item).PairedTachId = null;
+            _app.Save();
+            RebuildCards();
+        };
+        pair.Items.Add(autoMi);
+
+        foreach (var t in _app.Inventory.Where(i => i.Kind == HardwareKind.Tach)
+                     .OrderBy(i => i.Group).ThenBy(i => i.Name))
+        {
+            var mi = new MenuItem
+            {
+                Header = $"{_app.SensorLabel(t)} · {t.Group}",
+                IsChecked = t.Id == current,
+            };
+            mi.Click += (_, _) =>
+            {
+                FindOrCreateCfg(item).PairedTachId = t.Id;
+                _app.Save();
+                RebuildCards();
+            };
+            pair.Items.Add(mi);
+        }
+        fly.Items.Add(pair);
+
+        var up = new MenuItem { Header = "Move up" };
+        up.Click += (_, _) => MoveCard(item, -1);
+        var down = new MenuItem { Header = "Move down" };
+        down.Click += (_, _) => MoveCard(item, +1);
+        fly.Items.Add(up);
+        fly.Items.Add(down);
+
+        var hide = new MenuItem { Header = "Hide this card" };
+        hide.Click += (_, _) =>
+        {
+            FindOrCreateCfg(item).Hidden = true;
+            _app.Save();
+            RebuildCards();
+        };
+        fly.Items.Add(hide);
+
+        var release = new MenuItem { Header = "Release to board default" };
+        release.Click += (_, _) =>
+        {
+            var cfg = FindOrCreateCfg(item);
+            cfg.Enabled = false;
+            _app.Save();
+            _app.ManualRestore(item.Id); // writes the pre-takeover enable mode back
+            RebuildCards();
+        };
+        fly.Items.Add(release);
+
+        var btn = new Button
+        {
+            Content = "⋮",
+            Background = null,
+            
+            BorderThickness = new Thickness(0),
+            Foreground = Secondary,
+            Padding = new Thickness(4, 0, 4, 0),
+            FontSize = 15,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        btn.Flyout = fly; // Button.Flyout auto-opens on click (same mechanism as the header menu)
+        return btn;
+    }
+
+    /// <summary>Swap a card with its visible neighbor, materializing ControlOrder on first use.</summary>
+    private void MoveCard(HardwareItem item, int delta)
+    {
+        var visible = _app.Inventory
+            .Where(i => i.Kind == HardwareKind.Control
+                     && _app.Settings.Controls.FirstOrDefault(c => c.Id == i.Id)?.Hidden != true)
+            .Select((c, nat) => (c, nat))
+            .OrderBy(x => _app.Settings.ControlOrder.IndexOf(x.c.Id) is var ix && ix >= 0 ? ix : int.MaxValue)
+            .ThenBy(x => x.nat)
+            .Select(x => x.c.Id)
+            .ToList();
+
+        var i0 = visible.IndexOf(item.Id);
+        var i1 = i0 + delta;
+        if (i0 < 0 || i1 < 0 || i1 >= visible.Count)
+            return;
+        (visible[i0], visible[i1]) = (visible[i1], visible[i0]);
+
+        // Rank visible cards; hidden/unranked ids follow behind untouched.
+        _app.Settings.ControlOrder = visible;
+        _app.Save();
+        RebuildCards();
     }
 
     private Control BuildCard(HardwareItem item)
@@ -914,7 +1061,11 @@ public sealed partial class MainWindow : Window
             Child = new StackPanel
             {
                 Spacing = 5,
-                Children = { title, group, check, mode, valueLine, links, errorLine },
+                Children =
+                {
+                    new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Children = { title, Col(BuildCardMenu(item), 1) } },
+                    group, check, mode, valueLine, links, errorLine,
+                },
             },
         };
 

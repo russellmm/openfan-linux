@@ -31,6 +31,9 @@ public sealed class AppSettings
     public bool ReapplyPowerTargetsOnStart { get; set; } = true;
     public WindowSettings Window { get; set; } = new();
     public List<ControlSettings> Controls { get; set; } = [];
+
+    /// <summary>User card order (control ids). Ids absent from the list keep their natural position.</summary>
+    public List<string> ControlOrder { get; set; } = [];
     public List<CurveSettings> Curves { get; set; } = [];
 }
 

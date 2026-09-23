@@ -11,6 +11,23 @@ Pages: **Home** (fan Controls + Curves library), **GPUs** (per-card telemetry + 
 (full inventory, grouped, friendly renaming), Theme/Tray/Settings/About stubs. Avalonia 11.2.3 / .NET 8, FluentTheme Dark.
 
 ## 2. Build / run / test (agent workflow — agent rebuilds + restarts, user just looks)
+
+**Primary UI verification: the headless lab** (`../headless-lab`, read its README first):
+```bash
+cd ../headless-lab && ./hd start            # idempotent Xvfb :99 + Openbox
+./hd run --wait 7 -- dotnet ../openfan-linux/src/OpenFan.Linux.App/bin/Debug/net8.0/openfan.dll
+./hd shot label                             # read the printed PNG, decide next click
+./hd click X Y                              # screenshot px == display px, 1:1
+./hd diff a.png b.png                       # changed-pixel count proves UI reacted
+```
+Loop: **shot → read image → act → shot**. Monitor-only is safe; ASK before Apply-curves/calibration.
+Lab gotchas that bit me (see lab README for the full list):
+- Clicks land DURING a card rebuild silently no-op → sleep ~2 s after launch/rebuild-triggering actions.
+- Code-built menus: set `btn.Flyout = fly` (auto-opens); manual ShowAttachedFlyout was flaky under automation.
+- Flyouts are separate override-redirect windows — they appear in `hd shot` (root capture), not window captures.
+- Measure before clicking: crop+zoom the current screenshot for exact widget bounds; never reuse coords from an older layout.
+On the real desktop (`:0`) prefer keyboard (`xdotool key --window $W ctrl+N`); clicks there need a FRESH xwininfo
+origin per attempt (mutter re-places windows; stale coords once hit Exit and quit the app).
 ```bash
 cd /run/media/russellm/8TB/deepseek-linux/projects/openfan-linux
 dotnet build && dotnet test            # 91 tests green
