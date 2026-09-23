@@ -2022,8 +2022,31 @@ public sealed partial class MainWindow : Window
         RebuildChildren();
         RebuildAddChoices();
 
+        // Curve renames elsewhere must not leave stale names in this card's lists — rebuild only when the
+        // (ids+names) signature actually changes, so an open dropdown is never rebuilt out from under the user.
+        var mixSig = "";
+        void RefreshMixLists()
+        {
+            string NameOf(string id) => _app.Settings.Curves.FirstOrDefault(c => c.Id == id)?.Name ?? id;
+            var sig = string.Join("|", curve.ChildCurveIds.Select(NameOf))
+                + "#" + string.Join("|", _app.Settings.Curves
+                    .Where(c => c.Id != curve.Id
+                                && !c.Type.Equals("mix", StringComparison.OrdinalIgnoreCase)
+                                && !curve.ChildCurveIds.Contains(c.Id))
+                    .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+                    .Select(c => c.Id + ":" + c.Name));
+            if (sig == mixSig)
+                return;
+            mixSig = sig;
+            RebuildChildren();
+            RebuildAddChoices();
+        }
+
         _curveUpdaters.Add(() =>
-            outputText.Text = _app.CurveOutput(curve.Id) is double o ? $"{o:0.#} %" : "—");
+        {
+            outputText.Text = _app.CurveOutput(curve.Id) is double o ? $"{o:0.#} %" : "—";
+            RefreshMixLists();
+        });
     }
 
     /// <summary>Mini curve preview like the Windows cards: white line, orange fill, live dot.</summary>
