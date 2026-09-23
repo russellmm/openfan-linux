@@ -38,8 +38,13 @@
           <Button x:Name="MenuBtn" Content="⋮" Width="38" Height="32">
             <Button.Flyout>
               <MenuFlyout Placement="BottomEdgeAlignedRight">
-                <MenuItem Header="Save setup as…" Click="OnSaveSetupAs" />
-                <MenuItem Header="Load setup…" Click="OnLoadSetup" />
+                <MenuItem Header="Create new configuration…" InputGesture="Ctrl+N" Click="OnNewConfig" />
+                <MenuItem Header="Save configuration" InputGesture="Ctrl+S" Click="OnSaveConfig" />
+                <MenuItem Header="Save configuration as…" InputGesture="Ctrl+Shift+S" Click="OnSaveSetupAs" />
+                <MenuItem Header="Load configuration…" InputGesture="Ctrl+L" Click="OnLoadSetup" />
+                <Separator />
+                <MenuItem Header="Open error log" Click="OnOpenErrorLog" />
+                <MenuItem Header="Exit" Click="OnMenuExit" />
               </MenuFlyout>
             </Button.Flyout>
           </Button>

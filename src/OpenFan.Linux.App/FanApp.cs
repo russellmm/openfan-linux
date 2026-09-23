@@ -45,7 +45,8 @@ public sealed class FanApp : IDisposable
     public FanApp()
     {
         Store = new SettingsStore(SettingsStore.DefaultPath);
-        Settings = Store.Load();
+        ActiveConfigPath = ResolveActivePath();
+        Settings = new SettingsStore(ActiveConfigPath).Load();
         Hwmon = new HwmonBackend(null, Settings.Sources);
         _nvmlRoute = NvmlHelper.IsAvailable ? NvmlHelper : Nvml;
         Actuator = new CompositeActuator(("hwmon", Hwmon), ("nvml", _nvmlRoute));
@@ -181,7 +182,53 @@ public sealed class FanApp : IDisposable
         return curve is null ? null : FanController.Evaluate(curve, Settings.Curves, _readings);
     }
 
-    public void Save() => Store.Save(Settings);
+    /// <summary>File the UI reads/writes right now — default config.json or a named file (e.g. myconfig.json).</summary>
+    public string ActiveConfigPath { get; private set; } = SettingsStore.DefaultPath;
+
+    /// <summary>Sidecar remembering the active named config across launches; absent = default config.</summary>
+    private static string ActivePointerPath => Path.Combine(
+        Path.GetDirectoryName(SettingsStore.DefaultPath)!, "active");
+
+    private static string ResolveActivePath()
+    {
+        try
+        {
+            if (File.Exists(ActivePointerPath))
+            {
+                var p = File.ReadAllText(ActivePointerPath).Trim();
+                if (p.Length > 0 && File.Exists(p))
+                    return p;
+            }
+        }
+        catch { }
+        return SettingsStore.DefaultPath;
+    }
+
+    /// <summary>Switch the live settings to another config file (null = default) and persist that choice.</summary>
+    public void SwitchConfig(string? path)
+    {
+        var target = string.IsNullOrWhiteSpace(path) ? SettingsStore.DefaultPath : path!;
+        LoadProfile(new SettingsStore(target).Load());
+        ActiveConfigPath = target;
+        try
+        {
+            if (target == SettingsStore.DefaultPath)
+            {
+                if (File.Exists(ActivePointerPath)) File.Delete(ActivePointerPath);
+            }
+            else
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(ActivePointerPath)!);
+                File.WriteAllText(ActivePointerPath, target);
+            }
+        }
+        catch { }
+    }
+
+    public void Save()
+    {
+        new SettingsStore(ActiveConfigPath).Save(Settings);
+    }
 
     /// <summary>Exit / Apply-off path: give every owned control back to auto.</summary>
     public void RestoreAll() => Controller.RestoreAll();

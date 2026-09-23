@@ -104,6 +104,7 @@ public sealed partial class MainWindow : Window
             _app.Tick();
             ClockText.Text = DateTime.Now.ToString("h:mm:ss tt");
         };
+        UpdateTitle(); // "OpenFan — myconfig.json" when a named config is active
         if (bootWait == 0)
             _timer.Start();
         else
@@ -703,6 +704,30 @@ public sealed partial class MainWindow : Window
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
+        // Config-file shortcuts (menu parity): Ctrl+N / Ctrl+S / Ctrl+Shift+S / Ctrl+L.
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key is Key.N or Key.S or Key.L)
+        {
+            if (e.Key == Key.N && !e.KeyModifiers.HasFlag(KeyModifiers.Alt))
+            {
+                OnNewConfig(this, new RoutedEventArgs());
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.S && !e.KeyModifiers.HasFlag(KeyModifiers.Alt))
+            {
+                if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) OnSaveSetupAs(this, new RoutedEventArgs());
+                else OnSaveConfig(this, new RoutedEventArgs());
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.L && !e.KeyModifiers.HasFlag(KeyModifiers.Alt))
+            {
+                OnLoadSetup(this, new RoutedEventArgs());
+                e.Handled = true;
+                return;
+            }
+        }
+
         // PageUp/PageDown scroll whichever page is showing, regardless of child focus.
         if (e.KeyModifiers == KeyModifiers.None && e.Key is Key.PageUp or Key.PageDown)
         {
@@ -2083,6 +2108,75 @@ public sealed partial class MainWindow : Window
     private static string ProfilesDir =>
         Path.Combine(Path.GetDirectoryName(SettingsStore.DefaultPath) ?? ".", "profiles");
 
+    /// <summary>Ctrl+S / menu: save into whichever config file is currently active.</summary>
+    private void OnSaveConfig(object? sender, RoutedEventArgs e)
+    {
+        _app.Save();
+        StatusNote.Text = $"Saved to {Path.GetFileName(_app.ActiveConfigPath)}";
+    }
+
+    /// <summary>Ctrl+N: start a fresh empty configuration in a new file and switch to it.</summary>
+    private async void OnNewConfig(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Directory.CreateDirectory(ProfilesDir);
+            var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "Create new configuration",
+                SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync($"file://{ProfilesDir}/"),
+                SuggestedFileName = "new-config.json",
+                FileTypeChoices = [new FilePickerFileType("OpenFan configuration") { Patterns = ["*.json"] }],
+            });
+            if (file?.Path.LocalPath is string path)
+            {
+                new SettingsStore(path).Save(new AppSettings()); // empty config on disk first…
+                _app.SwitchConfig(path);                          // …then load it as the live settings
+                AfterConfigSwitch();
+                StatusNote.Text = $"New configuration {Path.GetFileName(path)} — changes save here";
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusNote.Text = $"Create failed: {ex.Message}";
+        }
+    }
+
+    private void OnOpenErrorLog(object? sender, RoutedEventArgs e)
+    {
+        var path = ErrorLog.Path;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            if (!File.Exists(path)) File.WriteAllText(path, "");
+            Process.Start(new ProcessStartInfo("xdg-open", "\"" + path + "\"") { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            StatusNote.Text = $"Could not open {path} ({ex.Message})";
+        }
+    }
+
+    private void OnMenuExit(object? sender, RoutedEventArgs e) => ExitBtn.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+    /// <summary>Common UI refresh after the active config file changes underneath us.</summary>
+    private void AfterConfigSwitch()
+    {
+        AccentTheme.Apply(_app.Settings.AccentColor); // per-config accent
+        ApplyCurvesBox.IsChecked = _app.Settings.ApplyCurves;
+        _sensorsPageBuilt = false;                    // aliases may differ now
+        RebuildCards();
+        RebuildCurveCards();
+        UpdateStatus();
+        UpdateTitle();
+    }
+
+    /// <summary>Title mirrors the Windows app: "OpenFan — myconfig.json" when a named file is active.</summary>
+    private void UpdateTitle() =>
+        Title = _app.ActiveConfigPath == SettingsStore.DefaultPath
+            ? "OpenFan"
+            : $"OpenFan — {Path.GetFileName(_app.ActiveConfigPath)}";
+
     private async void OnSaveSetupAs(object? sender, RoutedEventArgs e)
     {
         try
@@ -2097,8 +2191,10 @@ public sealed partial class MainWindow : Window
             });
             if (file?.Path.LocalPath is string path)
             {
-                new SettingsStore(path).Save(_app.Settings);
-                StatusNote.Text = $"Setup saved to {path}";
+                new SettingsStore(path).Save(_app.Settings); // write FIRST…
+                _app.SwitchConfig(path);                      // …then make it the active config file
+                UpdateTitle();
+                StatusNote.Text = $"Saved — now using {Path.GetFileName(path)}";
             }
         }
         catch (Exception ex)
@@ -2106,8 +2202,10 @@ public sealed partial class MainWindow : Window
             // No portal/picker on this desktop — fall back to a timestamped profile file.
             var path = Path.Combine(ProfilesDir, $"openfan-{DateTime.Now:yyyyMMdd-HHmmss}.json");
             Directory.CreateDirectory(ProfilesDir);
-            new SettingsStore(path).Save(_app.Settings);
-            StatusNote.Text = $"File dialog unavailable ({ex.GetType().Name}) — setup saved to {path}";
+            new SettingsStore(path).Save(_app.Settings); // write FIRST (picker unavailable)
+            _app.SwitchConfig(path);
+            UpdateTitle();
+            StatusNote.Text = $"File dialog unavailable ({ex.GetType().Name}) — saved to {path}";
         }
     }
 
@@ -2126,12 +2224,9 @@ public sealed partial class MainWindow : Window
             if (files.Count == 0 || files[0].Path.LocalPath is not string path)
                 return;
 
-            _app.LoadProfile(new SettingsStore(path).Load());
-            ApplyCurvesBox.IsChecked = _app.Settings.ApplyCurves;
-            RebuildCards();
-            RebuildCurveCards();
-            UpdateStatus();
-            StatusNote.Text = $"Setup loaded from {path}";
+            _app.SwitchConfig(path); // load + all future changes save into this file
+            AfterConfigSwitch();
+            StatusNote.Text = $"Now using {Path.GetFileName(path)} — changes save here";
         }
         catch (Exception ex)
         {

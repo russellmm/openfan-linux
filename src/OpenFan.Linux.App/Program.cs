@@ -22,6 +22,9 @@ internal static class Program
             return 1;
         }
 
+        AppDomain.CurrentDomain.UnhandledException += (_, a) => ErrorLog.Write("Unhandled", a.ExceptionObject as Exception);
+        TaskScheduler.UnobservedTaskException += (_, a) => { ErrorLog.Write("Unobserved task", a.Exception); a.SetObserved(); };
+
         try
         {
             return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
