@@ -19,6 +19,7 @@ public sealed class App : Application
     public override void OnFrameworkInitializationCompleted()
     {
         Hardware = new FanApp();
+        AccentTheme.Apply(Hardware.Settings.AccentColor); // persisted accent, live from first paint
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime lifetime)
         {
@@ -39,6 +40,9 @@ public sealed class App : Application
         base.OnFrameworkInitializationCompleted();
     }
 
+    /// <summary>MainWindow calls this when its header Apply-curves checkbox changes.</summary>
+    public static Action? TrayApplySync { get; set; }
+
     private void SetupTray(IClassicDesktopStyleApplicationLifetime lifetime)
     {
         // StatusNotifierItem tray; GNOME needs the AppIndicator extension —
@@ -50,6 +54,16 @@ public sealed class App : Application
             MainWin?.Activate();
         };
 
+        var applyItem = new NativeMenuItem("Apply curves") { ToggleType = NativeMenuItemToggleType.CheckBox };
+        applyItem.IsChecked = Hardware.Settings.ApplyCurves;
+        applyItem.Click += (_, _) =>
+        {
+            Hardware.Settings.ApplyCurves = applyItem.IsChecked == true;
+            Hardware.Save();
+            MainWin?.SyncApplyCurvesBox(); // keep the header checkbox honest
+        };
+        TrayApplySync = () => applyItem.IsChecked = Hardware.Settings.ApplyCurves;
+
         var exit = new NativeMenuItem("Exit");
         exit.Click += (_, _) =>
         {
@@ -57,15 +71,13 @@ public sealed class App : Application
             lifetime.Shutdown();
         };
 
-        TrayIcon.SetIcons(this, new TrayIcons
+        var tray = new TrayIcon
         {
-            new TrayIcon
-            {
-                Icon = MakeTrayIcon(),
-                ToolTipText = "OpenFan",
-                Menu = new NativeMenu { open, exit },
-            },
-        });    }
+            Icon = MakeTrayIcon(),
+            ToolTipText = "OpenFan — fan control",
+            Menu = new NativeMenu { open, applyItem, exit },
+        };
+        TrayIcon.SetIcons(this, new TrayIcons { tray });    }
 
     private static WindowIcon MakeTrayIcon()
     {

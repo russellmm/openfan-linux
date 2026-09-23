@@ -22,7 +22,7 @@
         <ControlTemplate>
           <Border Background="{TemplateBinding Background}" Padding="0,11">
             <Grid ColumnDefinitions="4,*">
-              <Rectangle x:Name="bar" Fill="#F0A03C" IsHitTestVisible="False" />
+              <Rectangle x:Name="bar" Fill="{DynamicResource AccentBrush}" IsHitTestVisible="False" />
               <ContentPresenter Grid.Column="1" Margin="18,0,0,0" VerticalAlignment="Center"
                           Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" />
             </Grid>
@@ -69,7 +69,7 @@
 
     <!-- Ok-style solid accent button (reference: graph/calibration dialogs). -->
     <Style Selector="Button.accent">
-      <Setter Property="Background" Value="#F0A03C" />
+      <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
       <Setter Property="Foreground" Value="#14181B" />
       <Setter Property="FontWeight" Value="SemiBold" />
     </Style>

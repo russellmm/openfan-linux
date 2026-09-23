@@ -20,7 +20,7 @@ public sealed partial class MainWindow : Window
     private static readonly IBrush Secondary = new SolidColorBrush(Color.Parse("#8FA0AA"));
     private static readonly IBrush CardBg = new SolidColorBrush(Color.Parse("#1E2429"));
     private static readonly IBrush CardBorder = new SolidColorBrush(Color.Parse("#2C363D"));
-    private static readonly IBrush Accent = new SolidColorBrush(Color.Parse("#F0A03C"));
+    private static IBrush Accent => AccentTheme.Accent; // shared mutable brush — live recolor via Theme page
     private static readonly IBrush Warn = new SolidColorBrush(Color.Parse("#EF6B6B"));
     private static readonly IBrush ValueText = new SolidColorBrush(Color.Parse("#F2F2F2"));
     private static readonly IBrush AreaFill = new SolidColorBrush(Color.FromArgb(0x59, 0xF0, 0xA0, 0x3C));
@@ -43,6 +43,7 @@ public sealed partial class MainWindow : Window
         ApplyCurvesBox.IsCheckedChanged += (_, _) =>
         {
             _app.Settings.ApplyCurves = ApplyCurvesBox.IsChecked == true;
+            App.TrayApplySync?.Invoke();
             if (!_app.Settings.ApplyCurves)
                 _app.RestoreAll(); // release owned fans to auto immediately, not on next tick
             _app.Save();
@@ -119,13 +120,19 @@ public sealed partial class MainWindow : Window
         SettingsPanel.IsVisible = page == "settings";
         if (page == "settings")
             BuildSettingsPage(); // fresh state each visit (helper status, conflicts, hidden list)
-        StubPage.IsVisible = page is not ("home" or "gpus" or "sensors" or "settings");
+        ThemePanel.IsVisible = page == "theme";
+        AboutPanel.IsVisible = page == "about";
+        if (page == "theme")
+            BuildThemePage();
+        if (page == "about")
+            BuildAboutPage();
+        StubPage.IsVisible = page is not ("home" or "gpus" or "sensors" or "settings" or "theme" or "about");
 
         (PageTitle.Text, PageSubtitle.Text) = page switch
         {
             "gpus" => ("GPUs", GpuSubtitle()),
             "sensors" => ("Sensors", SensorsSubtitle()),
-            "theme" => ("Theme", ""),
+            "theme" => ("Theme", "accent color, applied live"),
             "tray" => ("Tray", ""),
             "settings" => ("Settings", "app preferences"),
             "about" => ("About", ""),
@@ -769,6 +776,158 @@ public sealed partial class MainWindow : Window
         });
     }
 
+    // ---------------------------------------------------------------- Theme page
+
+    private static readonly (string Name, string Hex)[] AccentPresets =
+    [
+        ("Amber", "#F0A03C"), ("Gold", "#FFD54F"), ("Lime", "#9CCC65"), ("Green", "#7BC97B"),
+        ("Teal", "#3CBFB4"), ("Sky", "#4FC3F7"), ("Blue", "#6C8AE4"), ("Violet", "#B07CE8"),
+        ("Magenta", "#F06292"), ("Coral", "#EF6B6B"),
+    ];
+
+    private void BuildThemePage()
+    {
+        ThemeContent.Children.Clear();
+        ThemeContent.Children.Add(ColHeader("Accent color"));
+
+        var wrap = new WrapPanel { Orientation = Orientation.Horizontal };
+        foreach (var (name, hex) in AccentPresets)
+        {
+            var active = string.Equals(_app.Settings.AccentColor, hex, StringComparison.OrdinalIgnoreCase);
+            var swatch = new Border
+            {
+                Width = 132, Padding = new Thickness(12, 10, 12, 10),
+                Margin = new Thickness(0, 0, 10, 10),
+                Background = CardBg,
+                BorderBrush = active ? AccentTheme.Accent : CardBorder,
+                BorderThickness = new Thickness(active ? 2 : 1),
+                CornerRadius = new CornerRadius(10),
+                Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
+                Child = new StackPanel
+                {
+                    Spacing = 8,
+                    Children =
+                    {
+                        new Border
+                        {
+                            Height = 34, CornerRadius = new CornerRadius(6),
+                            Background = new SolidColorBrush(Color.Parse(hex)),
+                        },
+                        new TextBlock
+                        {
+                            Text = active ? $"{name} ✓" : name, FontSize = 13,
+                            FontWeight = active ? FontWeight.SemiBold : FontWeight.Normal,
+                        },
+                    },
+                },
+            };
+            swatch.PointerPressed += (_, _) =>
+            {
+                _app.Settings.AccentColor = hex;
+                AccentTheme.Apply(hex);
+                _app.Save();
+                BuildThemePage(); // move the checkmark
+            };
+            wrap.Children.Add(swatch);
+        }
+        ThemeContent.Children.Add(wrap);
+
+        // Custom hex input
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 6, 0, 0) };
+        var hexBox = new TextBox
+        {
+            Text = _app.Settings.AccentColor, Width = 140, Watermark = "#RRGGBB",
+            VerticalContentAlignment = VerticalAlignment.Center,
+        };
+        var applyBtn = new Button { Content = "Apply custom", Classes = { "accent" }, Padding = new Thickness(14, 6, 14, 6) };
+        var note = new TextBlock
+        {
+            Foreground = Secondary, VerticalAlignment = VerticalAlignment.Center, FontSize = 12,
+        };
+        void ApplyCustom()
+        {
+            var t = (hexBox.Text ?? "").Trim();
+            if (!t.StartsWith('#')) t = "#" + t;
+            if (!AccentTheme.IsValidHex(t))
+            {
+                note.Foreground = Warn;
+                note.Text = "Not a valid color — use #RRGGBB.";
+                return;
+            }
+            _app.Settings.AccentColor = t;
+            AccentTheme.Apply(t);
+            _app.Save();
+            BuildThemePage();
+        }
+        applyBtn.Click += (_, _) => ApplyCustom();
+        hexBox.KeyDown += (_, e) => { if (e.Key == Key.Enter) ApplyCustom(); };
+        row.Children.Add(hexBox);
+        row.Children.Add(applyBtn);
+        row.Children.Add(note);
+        ThemeContent.Children.Add(row);
+    }
+
+    // ---------------------------------------------------------------- About page
+
+    private void BuildAboutPage()
+    {
+        AboutContent.Children.Clear();
+        AboutContent.Children.Add(new StackPanel
+        {
+            Spacing = 6,
+            Children =
+            {
+                new TextBlock { Text = "OpenFan Linux", FontSize = 26, FontWeight = FontWeight.Bold },
+                new TextBlock
+                {
+                    Text = "v0.4.0 · hwmon + NVML · Avalonia / .NET 8",
+                    Foreground = Secondary, FontSize = 13,
+                },
+                new TextBlock
+                {
+                    Text = "Native Ubuntu fan control: motherboard, case and AIO fans via hwmon sysfs, NVIDIA GPU fans and power limits via NVML. Curves (flat / graph / mix) are named library objects you assign to any sensor. Design homage to the Windows OpenFan program.",
+                    TextWrapping = TextWrapping.Wrap, MaxWidth = 640, Margin = new Thickness(0, 6, 0, 0),
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                },
+            },
+        });
+
+        var sysCard = new Border
+        {
+            Background = CardBg, BorderBrush = CardBorder, BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10), Padding = new Thickness(16, 12, 16, 12), MaxWidth = 640,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Child = new StackPanel
+            {
+                Spacing = 4,
+                Children =
+                {
+                    new TextBlock { Text = "This system", FontWeight = FontWeight.SemiBold },
+                    new TextBlock { Text = GpuSubtitle(), Foreground = Secondary, FontSize = 12 },
+                    new TextBlock { Text = $"{_app.Inventory.Count} sensors · {_app.Settings.Curves.Count} curves · config ~/.config/openfan/config.json", Foreground = Secondary, FontSize = 12 },
+                },
+            },
+        };
+        AboutContent.Children.Add(sysCard);
+
+        var gh = new Button
+        {
+            Content = "github.com/russellmm/openfan-linux",
+            Background = null, BorderThickness = new Thickness(0),
+            Foreground = AccentTheme.Accent, FontWeight = FontWeight.SemiBold, FontSize = 13,
+            HorizontalAlignment = HorizontalAlignment.Left, Padding = new Thickness(0),
+        };
+        gh.Click += (_, _) =>
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo("xdg-open", "https://github.com/russellmm/openfan-linux") { UseShellExecute = true });
+            }
+            catch { }
+        };
+        AboutContent.Children.Add(gh);
+    }
+
     // ---------------------------------------------------------------- Settings page
 
     private static TextBlock ColHeader(string text) => new()
@@ -997,6 +1156,12 @@ public sealed partial class MainWindow : Window
 
         grid.Children.Add(system);
         SettingsContent.Children.Add(grid);
+    }
+
+    /// <summary>Tray toggled Apply curves — refresh the header checkbox without re-triggering the handler.</summary>
+    public void SyncApplyCurvesBox()
+    {
+        ApplyCurvesBox.IsChecked = _app.Settings.ApplyCurves;
     }
 
     private void RebuildCards()
