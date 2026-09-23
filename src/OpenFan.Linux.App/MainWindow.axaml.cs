@@ -24,6 +24,8 @@ public sealed partial class MainWindow : Window
     private static readonly IBrush Warn = new SolidColorBrush(Color.Parse("#EF6B6B"));
     private static readonly IBrush ValueText = new SolidColorBrush(Color.Parse("#F2F2F2"));
     private static readonly IBrush AreaFill = new SolidColorBrush(Color.FromArgb(0x59, 0xF0, 0xA0, 0x3C));
+    // Windows Openfan look: card combos sit flat with a full-width underline rule beneath them.
+    private static readonly IBrush ComboRule = new SolidColorBrush(Color.Parse("#4A5862"));
 
     private readonly FanApp _app;
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
@@ -1390,6 +1392,7 @@ public sealed partial class MainWindow : Window
         };
 
         var mode = new ComboBox { Width = 280, HorizontalAlignment = HorizontalAlignment.Left };
+        FlatCombo(mode);
         PopulateCurveChoices(mode, item);
 
         var valueLine = new TextBlock
@@ -1505,7 +1508,7 @@ public sealed partial class MainWindow : Window
                 Children =
                 {
                     new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Children = { title, Col(BuildCardMenu(item), 1) } },
-                    group, check, mode, valueLine, links, errorLine,
+                    group, check, mode, ComboUnderline(), valueLine, links, errorLine,
                 },
             },
         };
@@ -1769,6 +1772,7 @@ public sealed partial class MainWindow : Window
         body.Children.Add(new TextBlock { Text = "Temperature source", FontSize = 11, Foreground = Secondary });
 
         var sensorBox = new ComboBox { Width = 260, HorizontalAlignment = HorizontalAlignment.Left };
+        FlatCombo(sensorBox);
         var sensorItems = new List<(ComboBoxItem Item, string Id, string BaseLabel)>();
         foreach (var t in _app.Inventory
                      .Where(i => i.Kind == HardwareKind.Temperature)
@@ -1838,6 +1842,7 @@ public sealed partial class MainWindow : Window
         var preview = new Canvas { Height = 60, ClipToBounds = true };
 
         body.Children.Add(sensorBox);
+        body.Children.Add(ComboUnderline());
         body.Children.Add(outRow);
         body.Children.Add(preview);
 
@@ -1879,6 +1884,7 @@ public sealed partial class MainWindow : Window
         body.Children.Add(new TextBlock { Text = "Function", FontSize = 11, Foreground = Secondary });
 
         var funcBox = new ComboBox { Width = 200, HorizontalAlignment = HorizontalAlignment.Left };
+        FlatCombo(funcBox);
         foreach (var fi in new[]
                  {
                      new ComboBoxItem { Content = "Max", Tag = "max" },
@@ -1987,6 +1993,7 @@ public sealed partial class MainWindow : Window
         };
 
         body.Children.Add(funcBox);
+        body.Children.Add(ComboUnderline());
         body.Children.Add(addBox);
         body.Children.Add(childList);
         body.Children.Add(outputText);
@@ -2258,6 +2265,21 @@ public sealed partial class MainWindow : Window
     }
 
     // ---- shared helpers -----------------------------------------------------
+
+    /// <summary>Flatten a card combo so only its content + chevron show (the underline rule does the framing).</summary>
+    private static void FlatCombo(ComboBox cb)
+    {
+        cb.Background = Brushes.Transparent;
+        cb.BorderThickness = new Thickness(0);
+    }
+
+    /// <summary>The horizontal rule under a card's dropdown, spanning the card width.</summary>
+    private static Border ComboUnderline() => new()
+    {
+        Height = 1,
+        Background = ComboRule,
+        Margin = new Thickness(0, 2, 0, 4),
+    };
 
     private ControlSettings FindOrCreateCfg(HardwareItem item)
     {
