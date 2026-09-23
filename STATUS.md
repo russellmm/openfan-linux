@@ -30,7 +30,7 @@ Lab gotchas that bit me (see lab README for the full list):
 On the real desktop (`:0`) prefer keyboard (`xdotool key --window $W ctrl+N`); clicks there need a FRESH xwininfo
 origin per attempt (mutter re-places windows; stale coords once hit Exit and quit the app).
 ```bash
-cd /run/media/russellm/8TB/deepseek-linux/projects/openfan-linux
+cd /mnt/8TB/deepseek-linux/projects/openfan-linux
 dotnet build && dotnet test            # 91 tests green
 # GUI smoke: exit 124 after timeout == stable run
 timeout 12 ./src/OpenFan.Linux.App/bin/Debug/net8.0/openfan; echo exit=$?

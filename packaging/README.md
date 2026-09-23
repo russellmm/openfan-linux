@@ -53,7 +53,7 @@ hwmon PWM does **not** go through it (udev ACL covers that).
 ## Install (after building the repo)
 
 ```sh
-cd /run/media/russellm/8TB/deepseek-linux/projects/openfan-linux
+cd /mnt/8TB/deepseek-linux/projects/openfan-linux
 dotnet publish src/OpenFan.Linux.Helper -c Release -r linux-x64 --self-contained true \
   -p:PublishSingleFile=true -o /tmp/openfan-helper-build
 sudo install -m 755 /tmp/openfan-helper-build/openfan-helper /usr/local/lib/openfan/
