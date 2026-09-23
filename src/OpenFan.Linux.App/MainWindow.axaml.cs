@@ -1960,6 +1960,7 @@ public sealed partial class MainWindow : Window
             HorizontalAlignment = HorizontalAlignment.Left,
             PlaceholderText = "Add fan curve",
         };
+        FlatCombo(addBox); // same flat look as the other card dropdowns
 
         void RebuildAddChoices()
         {
