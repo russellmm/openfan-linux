@@ -136,14 +136,18 @@ validation trio gating Ok, get-or-create Cfg() rows.
 power limits via helper · `3b808a7` STATUS rewrite · `b36f825` calibration crash fix · `f62c927` calibration window.
 
 ## 7. Pending / next
-1. Re-pair tach management, ⋮ menus per card, card hide/drag-reorder (Windows Controls features).
-2. Settings page (enable/disable hwmon chips — HwmonBackend set is computed at construction, needs rebuild hook),
-   Theme page (accent picker), Tray polish, About content.
-3. Start-at-login autostart .desktop; logind sleep/resume restore; conflict detector (`pgrep coolercontrold|fancontrol`).
-4. `.deb` packaging; polkit alternative to the helper service. Manual chain in packaging/README.md.
-5. Helper protocol tests exist for `power`; consider integration test for SnapshotAll against live NVML (skip on CI).
-6. Nice-to-haves: calibration-estimated RPM while applying; recent-setups submenu; collapsed-state persistence for
-   Sensors subgroups; sensor aliases also in tooltips of dropdown items.
+1. `.deb` packaging (dpkg-deb script); polkit alternative to the helper service. Manual chain in packaging/README.md.
+2. Helper protocol tests exist for `power`; consider integration test for SnapshotAll against live NVML (skip on CI).
+3. Nice-to-haves: calibration-estimated RPM while applying; recent-setups submenu; collapsed-state persistence for
+   Sensors subgroups; sensor aliases also in tooltips of dropdown items; card drag-reorder (⋮ Move up/down shipped instead).
+
+**DONE this pass (2026-09-22 late):** ⋮ card menus (pair tach/move/hide/release) · ControlOrder + hidden pills ·
+Settings page (general/hidden/system incl. conflict detector) · autostart toggle · Theme accent picker (live,
+shared mutable brush + DynamicResource) · tray Apply-curves item · About page · **logind sleep/resume**
+(LogindMonitor: suspend→RestoreAll, wake+1.5s→ResetApplies; Tmds.DBus.Protocol MUST stay pinned to 0.20.0 —
+the version Avalonia.FreeDesktop loads; upgrading it TypeLoads `Connection` at X11 init and crashes the app.
+Test signals: `sudo busctl --system emit /org/freedesktop/login1 org.freedesktop.login1.Manager PrepareForSleep b true|false`
+— MatchRule drops Sender so synthetic emits work).
 
 ## 8. Standing cautions
 - Smoke runs load the user's REAL config with real group access — fans may briefly follow curves during test windows.

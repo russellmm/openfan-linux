@@ -37,6 +37,11 @@ public sealed class FanApp : IDisposable
     /// <summary>One read/apply cycle finished — UI refreshes values.</summary>
     public event Action? Ticked;
 
+    private readonly LogindMonitor _logind = new();
+
+    /// <summary>True between PrepareForSleep(true) and the re-arm after wake.</summary>
+    public bool Suspended { get; private set; }
+
     public FanApp()
     {
         Store = new SettingsStore(SettingsStore.DefaultPath);
@@ -44,6 +49,22 @@ public sealed class FanApp : IDisposable
         Hwmon = new HwmonBackend(null, Settings.Sources);
         _nvmlRoute = NvmlHelper.IsAvailable ? NvmlHelper : Nvml;
         Actuator = new CompositeActuator(("hwmon", Hwmon), ("nvml", _nvmlRoute));
+
+        // logind: release fans to firmware before sleep; re-arm writes after wake (EC often resets pwm_enable).
+        _logind.Start(
+            onSuspending: () =>
+            {
+                Suspended = true;
+                try { Controller.RestoreAll(); } catch { }
+                Console.Error.WriteLine("openfan: suspend — released fans to firmware");
+            },
+            onResume: () => _ = Task.Run(async () =>
+            {
+                await Task.Delay(1500); // let EC/driver settle
+                try { Controller.ResetApplies(); } catch { }
+                Suspended = false;
+                Console.Error.WriteLine("openfan: resumed — curve writes re-armed");
+            }));
         Controller = new FanController(Actuator);
         RefreshInventory(force: true);
 
@@ -172,6 +193,7 @@ public sealed class FanApp : IDisposable
 
     public void Dispose()
     {
+        _logind.Dispose();
         NvmlHelper.Dispose(); // clean socket close → helper restores anything we owned
         Hwmon.Dispose();
         Nvml.Dispose();

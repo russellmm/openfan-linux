@@ -11,4 +11,8 @@
     <ProjectReference Include="..\OpenFan.Core\OpenFan.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Tmds.DBus.Protocol" Version="0.20.0" />
+  </ItemGroup>
+
 </Project>
