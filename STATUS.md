@@ -145,6 +145,10 @@ power limits via helper · `3b808a7` STATUS rewrite · `b36f825` calibration cra
 **Config files (menu, Windows parity):** header ⋮ = Create new / Save / Save as… / Load… + Open error log + Exit, with Ctrl+N/S/Shift+S/L. Active-file model: `Save` always writes the *current* config; Save-as/Load switch it; a sidecar `$XDG_CONFIG_HOME/openfan/active` remembers the choice (default = absent; stale pointer → falls back to default). Title shows "OpenFan — myconfig.json" when named. Order matters: write file BEFORE SwitchConfig (it loads from disk). Error log: $XDG_STATE_HOME/openfan/errors.log via AppDomain/TaskScheduler hooks.
 ⚠ LAB HYGIENE: a lab app inherits the REAL session bus → StorageProvider pops portal dialogs on the user's desktop. Run lab apps as `./hd run -- env -u DBUS_SESSION_BUS_ADDRESS dotnet …` — Avalonia then uses its internal fallback picker (renders inside :99, drivable: click Name field, ctrl+a+Delete via focused-window xdotool, type, Save).
 ⚠ Xvfb can die between calls (`hd status` → DOWN): just `hd start` again.
+KEYBOARD (fixed 2026-09-22): `hd key COMBO [window-name]` now activates the window first — XTEST keys only reach the
+FOCUSED window and fresh Openbox maps don't focus. Always pass the name: `./hd key ctrl+s OpenFan`.
+Do NOT use `xdotool key --window` (XSendEvent) on Avalonia — unreliable. NB: this port has NO Ctrl+1..7 nav shortcuts
+(Windows-only); implemented config keys are Ctrl+N / Ctrl+S / Ctrl+Shift+S / Ctrl+L.
 
 **DONE this pass (2026-09-22 late):** ⋮ card menus (pair tach/move/hide/release) · ControlOrder + hidden pills ·
 Settings page (general/hidden/system incl. conflict detector) · autostart toggle · Theme accent picker (live,
