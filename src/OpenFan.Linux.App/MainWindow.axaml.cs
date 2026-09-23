@@ -1004,7 +1004,7 @@ public sealed partial class MainWindow : Window
             var exe = Path.Combine(AppContext.BaseDirectory, "openfan");
             File.WriteAllText(AutostartFilePath,
                 "[Desktop Entry]\nType=Application\nName=OpenFan\nComment=hwmon + NVML fan control\n" +
-                $"Exec=\"{exe}\"\nTerminal=false\nX-GNOME-Autostart-enabled=true\n");
+                $"Exec=\"{exe}\"\nTerminal=false\nIcon=openfan\nStartupWMClass=openfan\nX-GNOME-Autostart-enabled=true\n");
         }
         catch { /* settings checkbox state still reflects intent; file ops are best-effort */ }
     }

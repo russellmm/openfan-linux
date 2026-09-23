@@ -81,6 +81,13 @@ public sealed class App : Application
 
     private static WindowIcon MakeTrayIcon()
     {
+        try // the real fan icon (multi-size .ico incl. 16/32 px frames)
+        {
+            return new WindowIcon(Avalonia.Platform.AssetLoader.Open(
+                new Uri("avares://OpenFan.Linux.App/Assets/OpenFan.ico")));
+        }
+        catch { /* fall back to the drawn accent square below */ }
+
         var wb = new WriteableBitmap(new PixelSize(32, 32), new Vector(96, 96),
             PixelFormat.Bgra8888, AlphaFormat.Premul);
         using (var fb = wb.Lock())

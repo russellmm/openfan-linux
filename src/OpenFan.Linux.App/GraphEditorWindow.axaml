@@ -4,7 +4,8 @@
         Title="Edit graph"
         Width="920" Height="660"
         Background="#171B1F"
-        WindowStartupLocation="CenterOwner">
+        WindowStartupLocation="CenterOwner"
+        Icon="/Assets/OpenFan.ico">
 
   <Grid RowDefinitions="Auto,*,Auto" Margin="22,16,22,16">
 

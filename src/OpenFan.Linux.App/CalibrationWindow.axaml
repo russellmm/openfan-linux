@@ -4,7 +4,8 @@
         Title="Manual Fan Calibration"
         Width="1180" Height="740"
         Background="#171B1F"
-        WindowStartupLocation="CenterOwner">
+        WindowStartupLocation="CenterOwner"
+        Icon="/Assets/OpenFan.ico">
 
   <Grid RowDefinitions="Auto,*,Auto" Margin="26,18,26,16">
 

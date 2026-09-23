@@ -4,7 +4,8 @@
         Title="OpenFan"
         Width="1240" Height="800"
         Background="#171B1F"
-        WindowStartupLocation="CenterScreen">
+        WindowStartupLocation="CenterScreen"
+        Icon="/Assets/OpenFan.ico">
 
   <Grid ColumnDefinitions="152,*">
 
