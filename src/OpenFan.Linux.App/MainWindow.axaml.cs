@@ -1802,6 +1802,7 @@ public sealed partial class MainWindow : Window
             sensorItems.Add((item, t.Id, _app.SensorLabel(t))); // sensor name only — group is noise here
         }
         var suppress = false;
+        string paintedSelection = ""; // last string pushed through the combo's selection box
         int WantedIndex() => sensorItems.FindIndex(s => s.Id == curve.SensorId);
 
         void ApplySelection()
@@ -1881,12 +1882,17 @@ public sealed partial class MainWindow : Window
                 item.Content = r is null ? baseLabel : $"{baseLabel}   —   {r:0.#} °C";
             }
 
-            // keep the combo's own label live too (shows selected sensor + reading when closed)
-            if (sensorBox.SelectedItem is ComboBoxItem sel && sel.Tag is string selId)
+            // The closed combo paints a snapshot of the selected item's content — mutating Content above
+            // never repaints it. Re-assert the selection whenever the label changed (skipped while the
+            // popup is open, which would dismiss it mid-click).
+            if (!sensorBox.IsDropDownOpen && sensorBox.SelectedItem is ComboBoxItem sel)
             {
-                var r = _app.Reading(selId);
-                if (r is not null)
-                    sel.Content = $"{(selItemsBase(sensorItems, selId) ?? "sensor")}   —   {r:0.#} °C";
+                var wantContent = sel.Content as string;
+                if (wantContent != paintedSelection)
+                {
+                    paintedSelection = wantContent;
+                    ApplySelection();
+                }
             }
 
             var temp = curve.SensorId is null ? null : _app.Reading(curve.SensorId);
@@ -1894,9 +1900,6 @@ public sealed partial class MainWindow : Window
             DrawMiniPreview(preview, curve, temp);
         });
     }
-
-    private static string? selItemsBase(List<(ComboBoxItem Item, string Id, string BaseLabel)> items, string id)
-        => items.FirstOrDefault(s => s.Id == id).BaseLabel;
 
     private void BuildMixBody(CurveSettings curve, StackPanel body)
     {
