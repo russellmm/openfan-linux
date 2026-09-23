@@ -1511,6 +1511,33 @@ public sealed partial class MainWindow : Window
                     FontSize = 12,
                 });
         }
+        else if (item.Id.StartsWith("nvml:", StringComparison.OrdinalIgnoreCase))
+        {
+            // No tachometer feedback on these fans: let the user supply a Command% -> RPM table
+            // (e.g. measured with a tachometer or copied from Windows OpenFan), and the card shows
+            // an interpolated virtual speed instead of bare %.
+            var tableLink = new Button
+            {
+                Content = existingCfg is { Calibration.Count: >= 2 } ? "RPM table ✓" : "RPM table",
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(0),
+                Foreground = Accent,
+                FontWeight = FontWeight.SemiBold,
+            };
+            tableLink.Click += (_, _) =>
+            {
+                var cfgForTable = existingCfg ?? FindOrCreateCfg(item);
+                new ManualRpmWindow($"{item.Name} — fan speed table", cfgForTable.Calibration, pts =>
+                {
+                    cfgForTable.Calibration = pts;
+                    _app.Save();
+                    RebuildCards();
+                    UpdateValues();
+                }).Show(this);
+            };
+            links.Children.Add(tableLink);
+        }
 
         var card = new Border
         {
@@ -1539,6 +1566,14 @@ public sealed partial class MainWindow : Window
         return Scaled(card);
     }
 
+    /// <summary>Interpolated fan speed from a manual Command%-&gt;RPM table (fans with no tachometer).</summary>
+    private static double? EstimatedRpm(ControlSettings? cfg, double? percent)
+    {
+        if (cfg is not { Calibration.Count: >= 2 } || percent is not double p)
+            return null;
+        return new CalibrationMap(cfg.Calibration.Select(s => new CalibrationSample(s.Percent, s.Rpm))).RpmAt(p);
+    }
+
     private void UpdateValues()
     {
         var applying = _app.Settings.ApplyCurves;
@@ -1549,19 +1584,27 @@ public sealed partial class MainWindow : Window
             var rpm = _app.PairedRpm(card.Item);
             // NVML fan controls report their measured duty under the control's own id.
             var actual = id.StartsWith("nvml:", StringComparison.OrdinalIgnoreCase) ? _app.Reading(id) : null;
+            // Fans with no tachometer but a manual RPM table get an interpolated virtual speed.
+            var estRpm = rpm is null ? EstimatedRpm(cfg, commanded ?? actual) : null;
 
             if (commanded is double pct)
             {
                 card.ValueLine.Text = rpm is not null
                     ? $"{pct:0.#} %     {rpm:0} RPM"
-                    : actual is not null && Math.Abs(actual.Value - pct) > 1.5
-                        ? $"{pct:0.#} %   now {actual:0} %" // mid-ramp: target vs measured
-                        : $"{pct:0.#} %";
+                    : estRpm is double ev1
+                        ? $"{pct:0.#} %     {ev1:0} RPM (est)"
+                        : actual is not null && Math.Abs(actual.Value - pct) > 1.5
+                            ? $"{pct:0.#} %   now {actual:0} %" // mid-ramp: target vs measured
+                            : $"{pct:0.#} %";
                 card.ValueLine.Foreground = ValueText;
             }
             else if (actual is not null)
             {
-                card.ValueLine.Text = rpm is null ? $"{actual:0} %" : $"{actual:0} %     {rpm:0} RPM";
+                card.ValueLine.Text = rpm is not null
+                    ? $"{actual:0} %     {rpm:0} RPM"
+                    : estRpm is double ev2
+                        ? $"{actual:0} %     {ev2:0} RPM (est)"
+                        : $"{actual:0} %";
                 card.ValueLine.Foreground = Secondary; // monitoring shows the real fan speed
             }
             else

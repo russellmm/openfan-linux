@@ -1,0 +1,35 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="OpenFan.Linux.App.ManualRpmWindow"
+        Title="Fan speed table"
+        Width="560" Height="560"
+        Background="#171B1F"
+        WindowStartupLocation="CenterOwner">
+
+  <Grid RowDefinitions="Auto,*,Auto" Margin="22,18,22,16">
+
+    <StackPanel Grid.Row="0" Margin="0,0,0,12">
+      <TextBlock x:Name="TitleText" FontSize="21" FontWeight="Bold" Foreground="#F2F2F2" />
+      <TextBlock Text="Enter the real fan RPM for each command %. Fans without a tachometer (NVML GPUs) show an estimated speed interpolated from this table."
+                 Foreground="{StaticResource TextSecondary}" FontSize="13" TextWrapping="Wrap" Margin="0,4,0,0" />
+    </StackPanel>
+
+    <DockPanel Grid.Row="1">
+      <Grid DockPanel.Dock="Top" ColumnDefinitions="120,120,*,Auto" Margin="0,0,0,6">
+        <TextBlock Grid.Column="0" Text="Command (%)" Foreground="{StaticResource TextSecondary}" />
+        <TextBlock Grid.Column="1" Text="Speed (RPM)" Foreground="{StaticResource TextSecondary}" />
+      </Grid>
+      <StackPanel x:Name="Rows" Spacing="6" />
+    </DockPanel>
+
+    <StackPanel Grid.Row="2" Spacing="10" Margin="0,14,0,0">
+      <Button x:Name="AddRowBtn" Content="+ Add row" HorizontalAlignment="Left" />
+      <TextBlock x:Name="StatusText" Foreground="#EF6B6B" FontSize="12" TextWrapping="Wrap" IsVisible="False" />
+      <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
+        <Button x:Name="CancelBtn" Content="Cancel" Padding="22,8" />
+        <Button x:Name="OkBtn" Content="Ok" Padding="26,8" FontWeight="Bold"
+                Background="#F0A03C" Foreground="#14181B" BorderThickness="0" />
+      </StackPanel>
+    </StackPanel>
+  </Grid>
+</Window>
