@@ -62,6 +62,11 @@ public sealed partial class MainWindow : Window
         ToolTip.SetTip(NavAbout, "Ctrl+7");
 
         RefreshBtn.Click += (_, _) => _app.RefreshInventory(force: true);
+        // Windows-style blur: clicking anywhere that is NOT an editable control clears focus from
+        // text boxes / combos / spinners. Before this, focus could only move field-to-field or via
+        // menus, leaving name fields stuck in edit mode and mix-card dropdowns open across cards.
+        AddHandler(PointerPressedEvent, OnGlobalPointerPressedForBlur, RoutingStrategies.Tunnel);
+
         ExitBtn.Click += (_, _) =>
         {
             Exiting = true; // lifetime.Exit restores all owned fans + saves (spec §3.2)
@@ -2265,6 +2270,17 @@ public sealed partial class MainWindow : Window
     }
 
     // ---- shared helpers -----------------------------------------------------
+
+    private void OnGlobalPointerPressedForBlur(object? sender, PointerPressedEventArgs e)
+    {
+        if (e.Source is not Visual source)
+            return;
+        // Walk up from the click target: anything inside (or part of) an editable control keeps focus.
+        for (Visual? v = source; v is not null && v != this; v = v.Parent as Visual)
+            if (v is TextBox or ComboBox or ComboBoxItem or NumericUpDown)
+                return;
+        FocusManager?.ClearFocus(); // click on card body, background, scrollbar … → leave edit mode
+    }
 
     /// <summary>Flatten a card combo so only its content + chevron show (the underline rule does the framing).</summary>
     private static void FlatCombo(ComboBox cb)
