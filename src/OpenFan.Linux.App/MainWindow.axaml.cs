@@ -1844,8 +1844,11 @@ public sealed partial class MainWindow : Window
         _curveUpdaters.Add(() =>
         {
             // Re-assert the bound sensor if anything cleared or failed to render the combo.
+            // SelectionBoxItem == null catches the sneaky case: rebuilt while Home was hidden (renaming a
+            // sensor on the Sensors page) — SelectedIndex is correct but nothing ever painted the box.
             var want = WantedIndex();
-            if (want >= 0 && (sensorBox.SelectedIndex != want || sensorBox.SelectedItem is null))
+            if (want >= 0 && (sensorBox.SelectedIndex != want || sensorBox.SelectedItem is null ||
+                              (sensorBox.IsEffectivelyVisible && sensorBox.SelectionBoxItem is null)))
                 ApplySelection();
 
             foreach (var (item, id, baseLabel) in sensorItems)
