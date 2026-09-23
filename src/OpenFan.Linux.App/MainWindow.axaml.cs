@@ -531,7 +531,7 @@ public sealed partial class MainWindow : Window
                     };
                     var header = new Button
                     {
-                        Background = null,
+                        Background = Brushes.Transparent,
                         BorderThickness = new Thickness(0),
                         Padding = new Thickness(0, 5, 0, 5),
                         HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -945,7 +945,7 @@ public sealed partial class MainWindow : Window
         var gh = new Button
         {
             Content = "github.com/russellmm/openfan-linux",
-            Background = null, BorderThickness = new Thickness(0),
+            Background = Brushes.Transparent, BorderThickness = new Thickness(0),
             Foreground = AccentTheme.Accent, FontWeight = FontWeight.SemiBold, FontSize = 13,
             HorizontalAlignment = HorizontalAlignment.Left, Padding = new Thickness(0),
         };
@@ -1104,7 +1104,7 @@ public sealed partial class MainWindow : Window
             Grid.SetColumn(name, 0);
             var unhide = new Button
             {
-                Content = "Unhide", Background = null, BorderThickness = new Thickness(0),
+                Content = "Unhide", Background = Brushes.Transparent, BorderThickness = new Thickness(0),
                 Foreground = Accent, FontWeight = FontWeight.SemiBold, FontSize = 13,
             };
             Grid.SetColumn(unhide, 1);
@@ -1226,7 +1226,7 @@ public sealed partial class MainWindow : Window
             var unhide = new Button
             {
                 Content = $"{name} — unhide",
-                Background = null,
+                Background = Brushes.Transparent,
                 BorderThickness = new Thickness(1),
                 BorderBrush = CardBorder,
                 Foreground = Secondary,
@@ -1317,7 +1317,7 @@ public sealed partial class MainWindow : Window
         var btn = new Button
         {
             Content = "⋮",
-            Background = null,
+            Background = Brushes.Transparent,
             
             BorderThickness = new Thickness(0),
             Foreground = Secondary,
@@ -1478,7 +1478,7 @@ public sealed partial class MainWindow : Window
             var calLink = new Button
             {
                 Content = "Calibrate",
-                Background = null,
+                Background = Brushes.Transparent,
                 BorderThickness = new Thickness(0),
                 Padding = new Thickness(0),
                 Foreground = Accent,
@@ -1661,7 +1661,7 @@ public sealed partial class MainWindow : Window
         {
             Content = "×",
             Padding = new Thickness(7, 0, 7, 1),
-            Background = null,
+            Background = Brushes.Transparent,
             BorderThickness = new Thickness(0),
             Foreground = Secondary,
             FontSize = 15,
@@ -1724,7 +1724,7 @@ public sealed partial class MainWindow : Window
             FontWeight = FontWeight.Bold,
             Foreground = ValueText,
             BorderThickness = new Thickness(0),
-            Background = null,
+            Background = Brushes.Transparent,
             Padding = new Thickness(0),
             MinWidth = 52,
             TextAlignment = TextAlignment.Right,
@@ -1831,7 +1831,7 @@ public sealed partial class MainWindow : Window
         var editBtn = new Button
         {
             Content = "Edit",
-            Background = null,
+            Background = Brushes.Transparent, // whole padding box clickable, not just glyph ink
             BorderThickness = new Thickness(0),
             Foreground = Accent,
             FontWeight = FontWeight.SemiBold,
@@ -1936,7 +1936,7 @@ public sealed partial class MainWindow : Window
                 var removeBtn = new Button
                 {
                     Content = "×",
-                    Background = null,
+                    Background = Brushes.Transparent, // null would make only the glyph strokes clickable
                     BorderThickness = new Thickness(0),
                     Foreground = Secondary,
                     Padding = new Thickness(5, 0, 5, 0),
@@ -1946,6 +1946,7 @@ public sealed partial class MainWindow : Window
                     curve.ChildCurveIds.Remove(childId);
                     _app.Save();
                     RebuildChildren();
+                    RebuildAddChoices(); // the removed curve is available again — put it back in the dropdown
                     UpdateValues();
                 };
                 row.Children.Add(removeBtn);
