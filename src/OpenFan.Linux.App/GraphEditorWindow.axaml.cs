@@ -96,7 +96,9 @@ public sealed partial class GraphEditorWindow : Window
             var v = (double)e.NewValue.Value;
             if (v < TMax - 5)
             {
+                var (oldMin, oldMax) = (TMin, TMax);
                 _edit.MinTempC = v;
+                RemapPointsIntoRange(oldMin, oldMax);
                 Render();
             }
         };
@@ -106,7 +108,9 @@ public sealed partial class GraphEditorWindow : Window
             var v = (double)e.NewValue.Value;
             if (v > TMin + 5)
             {
+                var (oldMin, oldMax) = (TMin, TMax);
                 _edit.MaxTempC = v;
+                RemapPointsIntoRange(oldMin, oldMax);
                 Render();
             }
         };
@@ -153,6 +157,34 @@ public sealed partial class GraphEditorWindow : Window
 
     private static CurveSettings Clone(CurveSettings c) =>
         JsonSerializer.Deserialize<CurveSettings>(JsonSerializer.Serialize(c))!;
+
+    /// <summary>
+    /// When Min/Max temp shrinks the axis below existing points, remap every point proportionally from the old
+    /// axis onto the new one (shape preserved, nothing stranded off-screen). No-op while all points still fit.
+    /// </summary>
+    private void RemapPointsIntoRange(double oldMin, double oldMax)
+    {
+        if (_edit.Points.Count == 0) return;
+        var (newMin, newMax) = (TMin, TMax);
+        if (_edit.Points.All(p => p.TempC >= newMin && p.TempC <= newMax)) return;
+
+        var oldSpan = Math.Max(oldMax - oldMin, 1e-9);
+        var newSpan = Math.Max(newMax - newMin, 1e-9);
+        for (var i = 0; i < _edit.Points.Count; i++)
+        {
+            var p = _edit.Points[i];
+            var mapped = newMin + (p.TempC - oldMin) / oldSpan * newSpan;
+            _edit.Points[i] = p with { TempC = Math.Clamp(mapped, newMin, newMax) };
+        }
+
+        if (_selected >= 0 && _selected < _edit.Points.Count)
+        {
+            _suppress = true;
+            SelTempBox.Value = (decimal)_edit.Points[_selected].TempC;
+            SelPctBox.Value = (decimal)_edit.Points[_selected].Percent;
+            _suppress = false;
+        }
+    }
 
     // ---- plot geometry -----------------------------------------------------
 
