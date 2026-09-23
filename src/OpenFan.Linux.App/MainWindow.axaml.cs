@@ -6,6 +6,7 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Platform.Storage;
 using Avalonia.Media;
+using System.Diagnostics;
 using Avalonia.Threading;
 using OpenFan.Core.Curves;
 using OpenFan.Core.Config;
@@ -91,14 +92,21 @@ public sealed partial class MainWindow : Window
         RebuildCards();
         RebuildCurveCards();
         UpdateStatus();
-        _app.Tick(); // first paint now, not one timer-tick late
+        _timer.Interval = TimeSpan.FromMilliseconds(Math.Clamp(_app.Settings.RefreshMs, 250, 5000));
+
+        var bootWait = Math.Clamp(_app.Settings.StartupDelaySeconds, 0, 60);
+        if (bootWait == 0)
+            _app.Tick(); // first paint now, not one timer-tick late
 
         _timer.Tick += (_, _) =>
         {
             _app.Tick();
             ClockText.Text = DateTime.Now.ToString("h:mm:ss tt");
         };
-        _timer.Start();
+        if (bootWait == 0)
+            _timer.Start();
+        else
+            _ = DelayedStartAsync(bootWait); // let modules-load.d chips appear before first scan/loop
     }
 
     private string _homeSubtitle = "";
@@ -108,7 +116,10 @@ public sealed partial class MainWindow : Window
         HomePanel.IsVisible = page == "home";
         GpusPanel.IsVisible = page == "gpus";
         SensorsPanel.IsVisible = page == "sensors";
-        StubPage.IsVisible = page is not ("home" or "gpus" or "sensors");
+        SettingsPanel.IsVisible = page == "settings";
+        if (page == "settings")
+            BuildSettingsPage(); // fresh state each visit (helper status, conflicts, hidden list)
+        StubPage.IsVisible = page is not ("home" or "gpus" or "sensors" or "settings");
 
         (PageTitle.Text, PageSubtitle.Text) = page switch
         {
@@ -116,7 +127,7 @@ public sealed partial class MainWindow : Window
             "sensors" => ("Sensors", SensorsSubtitle()),
             "theme" => ("Theme", ""),
             "tray" => ("Tray", ""),
-            "settings" => ("Settings", ""),
+            "settings" => ("Settings", "app preferences"),
             "about" => ("About", ""),
             _ => ("Home", _homeSubtitle),
         };
@@ -746,6 +757,246 @@ public sealed partial class MainWindow : Window
         public required CheckBox CurveCheck { get; init; }
         public required ComboBox Mode { get; init; }
         public required TextBlock ErrorLine { get; init; }
+    }
+
+    private async Task DelayedStartAsync(int seconds)
+    {
+        await Task.Delay(seconds * 1000);
+        Dispatcher.UIThread.Post(() =>
+        {
+            _app.Tick();
+            _timer.Start();
+        });
+    }
+
+    // ---------------------------------------------------------------- Settings page
+
+    private static TextBlock ColHeader(string text) => new()
+    {
+        Text = text, FontSize = 20, FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 0, 0, 4),
+    };
+
+    private Border SettingRow(string label, Control editor, string? tip = null)
+    {
+        var content = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        var lbl = new TextBlock
+        {
+            Text = label, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap,
+        };
+        if (tip != null) ToolTip.SetTip(lbl, tip);
+        Grid.SetColumn(lbl, 0);
+        editor.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(editor, 1);
+        content.Children.Add(lbl);
+        content.Children.Add(editor);
+        return new Border
+        {
+            Background = CardBg, BorderBrush = CardBorder, BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8), Padding = new Thickness(14, 10, 14, 10), Child = content,
+        };
+    }
+
+    private static string AutostartFilePath =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "autostart", "openfan.desktop");
+
+    private void WriteAutostart(bool enable)
+    {
+        try
+        {
+            if (!enable)
+            {
+                if (File.Exists(AutostartFilePath)) File.Delete(AutostartFilePath);
+                return;
+            }
+            Directory.CreateDirectory(Path.GetDirectoryName(AutostartFilePath)!);
+            // BaseDirectory always holds the apphost, even when launched as `dotnet openfan.dll`.
+            var exe = Path.Combine(AppContext.BaseDirectory, "openfan");
+            File.WriteAllText(AutostartFilePath,
+                "[Desktop Entry]\nType=Application\nName=OpenFan\nComment=hwmon + NVML fan control\n" +
+                $"Exec=\"{exe}\"\nTerminal=false\nX-GNOME-Autostart-enabled=true\n");
+        }
+        catch { /* settings checkbox state still reflects intent; file ops are best-effort */ }
+    }
+
+    private static string[] FindFanControlConflicts()
+    {
+        try
+        {
+            return new[] { "coolercontrold", "fancontrol", "speedfan", "nbfc" }
+                .SelectMany(Process.GetProcessesByName)
+                .Select(p => p.ProcessName)
+                .Distinct().ToArray();
+        }
+        catch { return []; }
+    }
+
+    private void BuildSettingsPage()
+    {
+        SettingsContent.Children.Clear();
+
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*,*") };
+
+        // ---- column 1: General ----
+        var general = new StackPanel { Spacing = 10, Margin = new Thickness(0, 0, 20, 0) };
+        Grid.SetColumn(general, 0);
+        general.Children.Add(ColHeader("General"));
+
+        var minimized = new CheckBox { IsChecked = _app.Settings.StartMinimized };
+        minimized.IsCheckedChanged += (_, _) =>
+        {
+            _app.Settings.StartMinimized = minimized.IsChecked == true;
+            _app.Save();
+        };
+        general.Children.Add(SettingRow("Start minimized", minimized, "Launch to the tray instead of the main window."));
+
+        var autostart = new CheckBox { IsChecked = File.Exists(AutostartFilePath) };
+        autostart.IsCheckedChanged += (_, _) =>
+        {
+            _app.Settings.StartAtLogin = autostart.IsChecked == true;
+            WriteAutostart(_app.Settings.StartAtLogin);
+            _app.Save();
+        };
+        general.Children.Add(SettingRow("Start app at user log on", autostart, "~/.config/autostart/openfan.desktop"));
+
+        var bootWait = new NumericUpDown
+        {
+            Minimum = 0, Maximum = 60,
+            Value = Math.Clamp(_app.Settings.StartupDelaySeconds, 0, 60), Width = 120,
+        };
+        ToolTip.SetTip(bootWait, "Pause before the first sensor scan — helps when hwmon modules (nct6775) load slowly after boot.");
+        bootWait.ValueChanged += (_, _) =>
+        {
+            _app.Settings.StartupDelaySeconds = (int)bootWait.Value; // applied next launch
+            _app.Save();
+        };
+        general.Children.Add(SettingRow("Wait for sensors at start (seconds)", bootWait));
+
+        var refresh = new NumericUpDown
+        {
+            Minimum = 250, Maximum = 5000,
+            Value = Math.Clamp(_app.Settings.RefreshMs, 250, 5000), Width = 120,
+        };
+        refresh.ValueChanged += (_, _) =>
+        {
+            _app.Settings.RefreshMs = (int)refresh.Value;
+            _timer.Interval = TimeSpan.FromMilliseconds((int)refresh.Value);
+            _app.Save();
+        };
+        general.Children.Add(SettingRow("Refresh interval (ms)", refresh));
+
+        grid.Children.Add(general);
+
+        // ---- column 2: Hidden controls ----
+        var hiddenCol = new StackPanel { Spacing = 10, Margin = new Thickness(0, 0, 20, 0) };
+        Grid.SetColumn(hiddenCol, 1);
+        hiddenCol.Children.Add(ColHeader("Hidden controls"));
+
+        var hiddenItems = _app.Settings.Controls.Where(c => c.Hidden).ToList();
+        if (hiddenItems.Count == 0)
+        {
+            hiddenCol.Children.Add(new TextBlock
+            {
+                Text = "None — hide a card from its ⋮ menu on the Home page.",
+                Foreground = Secondary, FontSize = 13,
+            });
+        }
+        foreach (var hc in hiddenItems)
+        {
+            var hwItem = _app.Inventory.FirstOrDefault(i => i.Id == hc.Id);
+            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+            var name = new TextBlock
+            {
+                Text = string.IsNullOrWhiteSpace(hc.Name) ? (hwItem?.Name ?? hc.Id) : hc.Name,
+                VerticalAlignment = VerticalAlignment.Center, FontSize = 13,
+            };
+            ToolTip.SetTip(name, hc.Id);
+            Grid.SetColumn(name, 0);
+            var unhide = new Button
+            {
+                Content = "Unhide", Background = null, BorderThickness = new Thickness(0),
+                Foreground = Accent, FontWeight = FontWeight.SemiBold, FontSize = 13,
+            };
+            Grid.SetColumn(unhide, 1);
+            unhide.Click += (_, _) =>
+            {
+                hc.Hidden = false;
+                _app.Save();
+                RebuildCards();
+                BuildSettingsPage();
+            };
+            row.Children.Add(name);
+            row.Children.Add(unhide);
+            hiddenCol.Children.Add(row);
+        }
+        grid.Children.Add(hiddenCol);
+
+        // ---- column 3: System ----
+        var system = new StackPanel { Spacing = 10 };
+        Grid.SetColumn(system, 2);
+        system.Children.Add(ColHeader("System"));
+
+        var conflicts = FindFanControlConflicts();
+        if (conflicts.Length > 0)
+        {
+            system.Children.Add(new Border
+            {
+                Background = CardBg, BorderBrush = Warn, BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8), Padding = new Thickness(14, 10, 14, 10),
+                Child = new StackPanel
+                {
+                    Spacing = 4,
+                    Children =
+                    {
+                        new TextBlock { Text = "Fan-control conflict detected", Foreground = Warn, FontWeight = FontWeight.SemiBold },
+                        new TextBlock { Text = $"Running: {string.Join(", ", conflicts)} — two controllers writing the same fans will fight. Stop it (e.g. sudo systemctl stop fancontrol) before ticking Apply curves.", Foreground = Secondary, FontSize = 12, TextWrapping = TextWrapping.Wrap },
+                    },
+                },
+            });
+        }
+
+        var helperOn = _app.NvmlHelper.IsAvailable;
+        system.Children.Add(new Border
+        {
+            Background = CardBg, BorderBrush = CardBorder, BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8), Padding = new Thickness(14, 10, 14, 10),
+            Child = new StackPanel
+            {
+                Spacing = 4,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = helperOn ? "GPU write helper: connected ✓" : "GPU write helper: not installed",
+                        Foreground = helperOn ? new SolidColorBrush(Color.Parse("#7BC97B")) : Secondary, FontWeight = FontWeight.SemiBold,
+                    },
+                    new TextBlock
+                    {
+                        Text = helperOn
+                            ? "/run/openfan/helper.sock (root) — GPU fan curves and power limits available. Check: systemctl status openfan-helper"
+                            : "GPU fan control and power limits need the root helper daemon. Install steps: packaging/README.md",
+                        Foreground = Secondary, FontSize = 12, TextWrapping = TextWrapping.Wrap,
+                    },
+                },
+            },
+        });
+
+        system.Children.Add(new Border
+        {
+            Background = CardBg, BorderBrush = CardBorder, BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8), Padding = new Thickness(14, 10, 14, 10),
+            Child = new StackPanel
+            {
+                Spacing = 4,
+                Children =
+                {
+                    new TextBlock { Text = $"Sensor sources: hwmon + NVML ({_app.Inventory.Count} sensors)", FontWeight = FontWeight.SemiBold },
+                    new TextBlock { Text = "Chips and GPUs are detected automatically every second — plug in hardware and it appears. Rename anything on the Sensors page.", Foreground = Secondary, FontSize = 12, TextWrapping = TextWrapping.Wrap },
+                },
+            },
+        });
+
+        grid.Children.Add(system);
+        SettingsContent.Children.Add(grid);
     }
 
     private void RebuildCards()
