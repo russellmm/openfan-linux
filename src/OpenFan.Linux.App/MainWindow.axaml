@@ -15,6 +15,7 @@
         <TextBlock Text="OpenFan" FontWeight="Bold" FontSize="17" Foreground="#F2F2F2"
                    Margin="22,0,0,18" />
         <RadioButton x:Name="NavHome"  Classes="nav" Content="Home"     GroupName="page" IsChecked="True" />
+        <RadioButton x:Name="NavCpu"   Classes="nav" Content="CPU"      GroupName="page" />
         <RadioButton x:Name="NavGpus"  Classes="nav" Content="GPUs"     GroupName="page" />
         <RadioButton x:Name="NavSensors" Classes="nav" Content="Sensors" GroupName="page" />
         <RadioButton x:Name="NavTheme" Classes="nav" Content="Theme"    GroupName="page" />
@@ -105,6 +106,12 @@
       <ScrollViewer x:Name="GpusPanel" Grid.Row="1" Grid.RowSpan="2" IsVisible="False"
                     HorizontalScrollBarVisibility="Disabled">
         <StackPanel x:Name="GpusContent" Spacing="14" />
+      </ScrollViewer>
+
+      <!-- CPU: package telemetry from sysfs (populated in code) -->
+      <ScrollViewer x:Name="CpusPanel" Grid.Row="1" Grid.RowSpan="2" IsVisible="False"
+                    HorizontalScrollBarVisibility="Disabled">
+        <StackPanel x:Name="CpusContent" Spacing="14" />
       </ScrollViewer>
 
       <!-- Sensors: full inventory with friendly renaming (populated in code) -->

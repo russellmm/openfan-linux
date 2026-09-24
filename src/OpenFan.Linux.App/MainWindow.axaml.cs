@@ -54,12 +54,12 @@ public sealed partial class MainWindow : Window
         };
 
         ToolTip.SetTip(NavHome, "Ctrl+1");
-        ToolTip.SetTip(NavGpus, "Ctrl+2");
-        ToolTip.SetTip(NavSensors, "Ctrl+3");
-        ToolTip.SetTip(NavTheme, "Ctrl+4");
-        ToolTip.SetTip(NavTray, "Ctrl+5");
-        ToolTip.SetTip(NavSettings, "Ctrl+6");
-        ToolTip.SetTip(NavAbout, "Ctrl+7");
+        ToolTip.SetTip(NavCpu, "Ctrl+2");
+        ToolTip.SetTip(NavGpus, "Ctrl+3");
+        ToolTip.SetTip(NavSensors, "Ctrl+4");
+        ToolTip.SetTip(NavTheme, "Ctrl+5");
+        ToolTip.SetTip(NavTray, "Ctrl+6");
+        ToolTip.SetTip(NavSettings, "Ctrl+7");
 
         RefreshBtn.Click += (_, _) => _app.RefreshInventory(force: true);
         // Windows-style blur: clicking anywhere that is NOT an editable control clears focus from
@@ -80,6 +80,7 @@ public sealed partial class MainWindow : Window
         _homeSubtitle = $"v{typeof(MainWindow).Assembly.GetName().Version?.ToString(3)} · hwmon + NVML";
 
         NavHome.Checked += (_, _) => ShowPage("home");
+        NavCpu.Checked += (_, _) => ShowPage("cpu");
         NavGpus.Checked += (_, _) => ShowPage("gpus");
         NavSensors.Checked += (_, _) => ShowPage("sensors");
         NavTheme.Checked += (_, _) => ShowPage("theme");
@@ -123,6 +124,7 @@ public sealed partial class MainWindow : Window
     private void ShowPage(string page)
     {
         HomePanel.IsVisible = page == "home";
+        CpusPanel.IsVisible = page == "cpu";
         GpusPanel.IsVisible = page == "gpus";
         SensorsPanel.IsVisible = page == "sensors";
         SettingsPanel.IsVisible = page == "settings";
@@ -134,10 +136,11 @@ public sealed partial class MainWindow : Window
             BuildThemePage();
         if (page == "about")
             BuildAboutPage();
-        StubPage.IsVisible = page is not ("home" or "gpus" or "sensors" or "settings" or "theme" or "about");
+        StubPage.IsVisible = page is not ("home" or "cpu" or "gpus" or "sensors" or "settings" or "theme" or "about");
 
         (PageTitle.Text, PageSubtitle.Text) = page switch
         {
+            "cpu" => ("CPU", CpuSubtitle()),
             "gpus" => ("GPUs", GpuSubtitle()),
             "sensors" => ("Sensors", SensorsSubtitle()),
             "theme" => ("Theme", "accent color, applied live"),
@@ -156,10 +159,118 @@ public sealed partial class MainWindow : Window
             _ => "",
         };
 
+        if (page == "cpu")
+            EnsureCpuPage();
         if (page == "gpus")
             EnsureGpuPage();
         if (page == "sensors")
             EnsureSensorsPage();
+    }
+
+    // ---- CPU page ------------------------------------------------------------
+
+    private readonly OpenFan.Linux.Hw.CpuMonitor _cpu = new();
+    private bool _cpuPageBuilt;
+    private Action? _cpuCardUpdate;
+
+    private string CpuSubtitle()
+    {
+        var s = _cpu.Read();
+        return $"{s.Cores} threads" + (s.PowerW is null ? " · no HSMP power source" : " · amd_hsmp");
+    }
+
+    private void EnsureCpuPage()
+    {
+        if (_cpuPageBuilt)
+            return;
+        _cpuPageBuilt = true;
+        CpusContent.Children.Clear();
+        var snap = _cpu.Read();
+
+        StackPanel Stat(string label, out TextBlock valueOut)
+        {
+            valueOut = new TextBlock { FontSize = 15, FontWeight = FontWeight.Bold, Foreground = ValueText };
+            return new StackPanel
+            {
+                Spacing = 2,
+                MinWidth = 130,
+                Children =
+                {
+                    new TextBlock { Text = label, Foreground = Secondary, FontSize = 12 },
+                    valueOut,
+                },
+            };
+        }
+
+        var tempV = Stat("Temp", out var temp);
+        var powerV = Stat("Power (PPT)", out var power);
+        var capV = Stat("PPT limit", out var cap);
+        var loadV = Stat("Load", out var load);
+        var freqV = Stat("Frequency", out var freq);
+
+        var barBg = new SolidColorBrush(Color.Parse("#2C363D"));
+        var loadBar = new ProgressBar { Minimum = 0, Maximum = 100, Height = 8, CornerRadius = new CornerRadius(4), Foreground = Accent, Background = barBg };
+        var loadPct = new TextBlock { Foreground = ValueText, FontSize = 13 };
+        var powerBar = new ProgressBar { Minimum = 0, Maximum = 100, Height = 8, CornerRadius = new CornerRadius(4), Foreground = new SolidColorBrush(Color.Parse("#4FC3F7")), Background = barBg };
+        var powerText = new TextBlock { Foreground = ValueText, FontSize = 13 };
+
+        var noteLine = new TextBlock { Foreground = Secondary, FontSize = 12, Margin = new Thickness(0, 8, 0, 0) };
+
+        _cpuCardUpdate = () =>
+        {
+            var s = _cpu.Read();
+            temp.Text = s.TempC is double t ? $"{t:0.#} °C" : "—";
+            power.Text = s.PowerW is double pw ? $"{pw:0.#} W" : "—";
+            cap.Text = s.PptCapW is double c ? $"{c:0} W" : "—";
+            load.Text = s.LoadPct is double l ? $"{l:0} %" : "—";
+            freq.Text = s.MaxGHz is double g ? $"{g:0.##} GHz" : "—";
+            loadBar.Value = s.LoadPct ?? 0;
+            loadPct.Text = $"Load   {s.LoadPct:0.#} %";
+            if (s.PowerW is double pw2 && s.PptCapW is double c2 && c2 > 0)
+            {
+                powerBar.IsVisible = true;
+                powerText.IsVisible = true;
+                powerBar.Value = Math.Clamp(pw2 / c2 * 100, 0, 100);
+                powerText.Text = $"PPT   {pw2:0.#} / {c2:0} W";
+            }
+            else
+            {
+                powerBar.IsVisible = false;
+                powerText.IsVisible = false;
+            }
+            noteLine.Text = s.PowerW is null
+                ? "Package power needs the amd_hsmp kernel module (sensors-detect / modules-load.d). Temp, load and frequency work without it."
+                : $"Power + PPT cap from amd_hsmp · temp from board hwmon · load from /proc/stat · {s.Cores} threads";
+        };
+        _cpuCardUpdate();
+
+        CpusContent.Children.Add(new Border
+        {
+            Padding = new Thickness(18, 14, 18, 16),
+            Background = CardBg,
+            BorderBrush = CardBorder,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Child = new StackPanel
+            {
+                Spacing = 10,
+                Children =
+                {
+                    new TextBlock { Text = snap.Model, FontSize = 18, FontWeight = FontWeight.Bold, Foreground = ValueText },
+                    new WrapPanel { Orientation = Orientation.Horizontal, Children = { tempV, powerV, capV, loadV, freqV } },
+                    new StackPanel { Spacing = 3, Margin = new Thickness(0, 6, 0, 0), Children = { loadBar, loadPct } },
+                    new StackPanel { Spacing = 3, Children = { powerBar, powerText } },
+                    noteLine,
+                },
+            },
+        });
+    }
+
+    private void UpdateCpuPage()
+    {
+        if (!_cpuPageBuilt || !CpusPanel.IsVisible)
+            return;
+        try { _cpuCardUpdate?.Invoke(); } catch { /* transient sysfs read — next tick */ }
     }
 
     // ---- GPUs page -----------------------------------------------------------
@@ -756,12 +867,12 @@ public sealed partial class MainWindow : Window
             RadioButton? target = e.Key switch
             {
                 Key.D1 or Key.NumPad1 => NavHome,
-                Key.D2 or Key.NumPad2 => NavGpus,
-                Key.D3 or Key.NumPad3 => NavSensors,
-                Key.D4 or Key.NumPad4 => NavTheme,
-                Key.D5 or Key.NumPad5 => NavTray,
-                Key.D6 or Key.NumPad6 => NavSettings,
-                Key.D7 or Key.NumPad7 => NavAbout,
+                Key.D2 or Key.NumPad2 => NavCpu,
+                Key.D3 or Key.NumPad3 => NavGpus,
+                Key.D4 or Key.NumPad4 => NavSensors,
+                Key.D5 or Key.NumPad5 => NavTheme,
+                Key.D6 or Key.NumPad6 => NavTray,
+                Key.D7 or Key.NumPad7 => NavSettings,
                 _ => null,
             };
             if (target is not null)
@@ -1632,6 +1743,7 @@ public sealed partial class MainWindow : Window
             try { update(); } catch { /* a stale card mid-rebuild — next tick is fine */ }
         }
 
+        UpdateCpuPage();
         UpdateGpuPage();
         UpdateSensorsPage();
         UpdateStatus();
