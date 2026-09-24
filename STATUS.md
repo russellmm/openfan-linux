@@ -1,16 +1,32 @@
 # OpenFan Linux — Project Status & Handover
 
-**Last updated:** 2026-09-22 (late) · **State: fully working, committed, pushed to GitHub, safe across reboots**
-Branch `main` → github.com/russellmm/openfan-linux. Spec: [`openfan-ubuntu.md`](openfan-ubuntu.md) (approved; checkboxes mostly current). Hardware findings journal: [`spike-notes.md`](spike-notes.md). Manual install chain (incl. helper publish): [`packaging/README.md`](packaging/README.md).
-NOTE: history was rewritten once before the first push to scrub a sudo password from old STATUS revisions — all pre-rewrite hashes are gone; hashes below are post-rewrite.
+**Last updated:** 2026-09-24 · **State: fully working, in daily use; code and documentation both pushed to `origin/main`.**
+Branch `main` → github.com/russellmm/openfan-linux. Spec / design: [`openfan-ubuntu.md`](openfan-ubuntu.md). Hardware findings journal: [`spike-notes.md`](spike-notes.md). Manual install chain (udev, modules-load, helper service): [`packaging/README.md`](packaging/README.md). CPU power CLI + boot persistence: [`tools/hsmp-control/README.md`](tools/hsmp-control/README.md).
+NOTE: history was rewritten once before the first push to scrub a sudo password from old STATUS revisions. Keep credentials out of these docs — that includes paths to local password/token files.
 
 ## 1. What this is
-Native Ubuntu app owning motherboard/case/AIO fans (hwmon sysfs) + NVIDIA GPU fans (NVML), with
-Flat/Graph/Mix curves, mirroring the Windows **OpenFan** reference (design screenshots in `screenshots/`).
-Pages: **Home** (fan Controls + Curves library), **GPUs** (per-card telemetry + power limits), **Sensors**
-(full inventory, grouped, friendly renaming), Theme/Tray/Settings/About stubs. Avalonia 11.2.3 / .NET 8, FluentTheme Dark.
+Native Ubuntu app owning motherboard/case/AIO fans (hwmon sysfs) + NVIDIA GPU fans and power limits (NVML), with
+Flat/Graph/Mix curves, mirroring the Windows **OpenFan** reference (design screenshots in `screenshots/`). Also
+controls the **CPU socket power limit (PPT)** on Threadripper via HSMP — a power knob on the CPU tab, unrelated to
+fan behaviour (see §4).
+Pages: **Home** (fan Controls + Curves library), **CPU** (socket telemetry + PPT editor), **GPUs** (per-card
+telemetry + power limits), **Sensors** (full inventory, grouped, friendly renaming), Theme/Tray stubs, Settings
+(general / hidden / system incl. conflict detector + autostart), About. Avalonia 11.2.3 / .NET 8, FluentTheme Dark.
 
 ## 2. Build / run / test (agent workflow — agent rebuilds + restarts, user just looks)
+
+```bash
+cd /mnt/8TB/deepseek-linux/projects/openfan-linux
+dotnet build && dotnet test          # 136 tests green (tests/OpenFan.Core.Tests)
+# GUI smoke: exit 124 after timeout == stable run
+timeout 12 ./src/OpenFan.Linux.App/bin/Debug/net8.0/openfan; echo exit=$?
+```
+
+**If you changed `OpenFan.Linux.Hw` or `OpenFan.Linux.Helper`, reinstall the daemon too.** The running helper is a
+published binary, not the repo tree; a stale daemon answers new commands with `err unknown command` (this cost real
+debugging time — the GUI looked broken when only the installed daemon was old). Publish + install + restart per
+[`packaging/README.md`](packaging/README.md), then probe the socket with an out-of-window value to confirm it knows
+the command without changing any limit.
 
 **Primary UI verification: the headless lab** (`../headless-lab`, read its README first):
 ```bash
@@ -30,10 +46,6 @@ Lab gotchas that bit me (see lab README for the full list):
 On the real desktop (`:0`) prefer keyboard (`xdotool key --window $W ctrl+N`); clicks there need a FRESH xwininfo
 origin per attempt (mutter re-places windows; stale coords once hit Exit and quit the app).
 ```bash
-cd /mnt/8TB/deepseek-linux/projects/openfan-linux
-dotnet build && dotnet test            # 91 tests green
-# GUI smoke: exit 124 after timeout == stable run
-timeout 12 ./src/OpenFan.Linux.App/bin/Debug/net8.0/openfan; echo exit=$?
 # Relaunch on user's desktop (kill old instance first):
 pkill -x openfan; sleep 1
 DISPLAY=:0 XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 \
@@ -43,15 +55,24 @@ DISPLAY=:0 XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 \
 - **See the user's actual window** (required before claiming a UI change works):
   `W=$(DISPLAY=:0 xdotool search --class openfan | head -1); DISPLAY=:0 import -window "$W" /tmp/x.png` then read_image.
   Caught the invisible-nav-rail bug this way — verify visually, don't reason blind.
-- Driving the app remotely: **Ctrl+1..7** switches pages, **PageUp/PageDown** scrolls — far more reliable than
-  xdotool clicks (mutter frame offsets double-count; client origin ≠ reported Position). `xdotool key --window $W ctrl+3`.
+- Unit tests + CLI checks are NOT end-to-end proof. Claiming "Apply works" from unit tests alone was wrong once:
+  the deployed daemon was stale. For anything crossing the socket, drive the real socket or the real UI.
 - `pgrep -f "bin/Debug/net8.0/openfan"` self-matches its own bash line → use `pgrep -x openfan`.
-- Git identity: `git -c user.name="russellmm" -c user.email="russellmm@users.noreply.github.com" commit`.
+- Git identity is configured **repo-locally** (`russellmm <russellmm@users.noreply.github.com>`); no `-c` flags needed.
+  Pushing over HTTPS needs a credential and none is stored in git config — see §8 for the procedure.
 - **Never chain `build | grep "0 Error(s)" && … && commit`**: grep exits 0 on match and the chain commits
   even when errors were also printed (happened once; fixed via --amend). Gate on the build explicitly.
+- Likewise never trust a negative from the wrong artifact: `.NET` string literals are UTF-16, so plain `grep` on a
+  built `.dll` reports strings as absent. Use `strings -el`. And confirm *which* config file an app instance uses
+  (`$XDG_CONFIG_HOME/openfan/active` → named profile) before concluding a setting was never saved.
+
+**Launcher (user-facing, survives rebuilds):** both `~/.local/share/applications/openfan.desktop` and
+`~/Desktop/openfan.desktop` (trusted via `gio set … metadata::trusted true` for GNOME) exec **`~/.local/bin/openfan`**,
+a wrapper that picks the newest built apphost (Release preferred on ties), honours `OPENFAN_BIN=`, and answers
+`--launcher-path` without starting the GUI. Icons come from `packaging/install-icons.sh`.
 
 ## 3. Target machine facts (verified)
-- Ubuntu 26.04.1, TRX50 + Threadripper 9970X, NVIDIA driver **595.91.07**.
+- Ubuntu 26.04.1, TRX50 + Threadripper 9970X, NVIDIA driver **595.91.07**. BIOS **0617**, Secure Boot **on**.
 - GPUs: RTX 5060 Ti `GPU-551a52fc…`; PRO 6000 WS `GPU-6d3eab54…` (slot 1); PRO 6000 WS `GPU-d0f36b3b…` (slot 3).
 - **GPU fan RPM unavailable on this driver** — verified by direct ctypes probe: `nvmlDeviceGetFanSpeedRPM`
   fails on all 3 cards with every struct-version encoding, and `/sys/class/hwmon` has **no nvidia chip**.
@@ -63,13 +84,24 @@ DISPLAY=:0 XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 \
   the exact pre-takeover value on release/exit.
 - PWM write access: udev rule `/etc/udev/rules.d/99-openfan-pwm.rules` → group `openfan`; user is a member.
 - GPU writes: root helper `/usr/local/lib/openfan/openfan-helper` + **openfan-helper.service** (enabled, active),
-  socket `/run/openfan/helper.sock` (root:openfan 0660). Protocol lines: `ping | set <nvml-fan-id> <pct> |
-  default <id> | power <GPU-uuid> <watts> | quit`. Fan writes restore on disconnect; **power limits deliberately
-  not restored** (driver persists them). App keeps ONE persistent connection — per-call connections would trip
+  socket `/run/openfan/helper.sock` (root:openfan 0660; relocate both ends with `OPENFAN_HELPER_SOCKET`, which is how
+  tests use a private socket). If neither NVML nor `amd_hsmp_hwmon` exists the daemon exits 2 ("helper has no job")
+  instead of serving an inert socket. Protocol lines: `ping | set <nvml-fan-id> <pct> |
+  default <id> | power <GPU-uuid> <watts> | cpupower <W>|default | cpuboot <W>|clear | quit`. Fan writes restore on
+  disconnect; **power limits deliberately not restored** (driver persists them, and a CPU limit is re-applied by
+  policy, not restored). App keeps ONE persistent connection — per-call connections would trip
   restore-on-disconnect. GPU reads go direct via NVML in-process.
+- HSMP: driver `amd_hsmp`, protocol **7**, SMU firmware 115.46.0. hwmon chip `amd_hsmp_hwmon` exposes
+  `power1_input` / `power1_cap` in **microwatts** and `power1_cap_max` = 2000 W (firmware ceiling, *not* a
+  recommended target). Live limit at handover: set by the user; BIOS flash default **295 W**, TDP **245 W**,
+  TjMax **80 °C**.
+- CPU power persistence is installed on this machine: `/usr/local/bin/hsmp-control` + enabled
+  `hsmp-control-apply.service` + `/etc/hsmp-control/ppt_mw` (milliwatts, present only when *keep after reboot* is
+  ticked). Installed via `tools/hsmp-control/packaging/install-persistence.sh`.
 - User's own `nvidia-power-limit.service` sets -pm 1 + 150/250/250 W at boot; OpenFan's saved limits were seeded
   to match (config `gpuPowerLimitsW`, reapplied at app start). Interaction documented: last writer wins, no conflict.
-- Agent sudo: ask the user for the password per call (removed from docs/history before pushing; user advised to rotate).
+- Privileged steps: this harness has a root-grant mechanism configured on the machine. Use it for one command at a
+  time when needed; **never** write the password file path or any secret into docs, commits, or scripts.
 
 ## 4. Architecture
 **Curve library model (user-mandated, non-negotiable):** curves are first-class named objects; fans reference them.
@@ -78,23 +110,74 @@ DISPLAY=:0 XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 \
   `ControlSettings.CurveId` + `Enabled` reference a curve (many fans → one curve). Mix-in-mix blocked.
 - `CurvePointDto(double TempC, double Percent)` — **Percent is DOUBLE**. `GraphCurve.Evaluate(IReadOnlyList<CurvePoint>, …)`
   takes CurvePoint, NOT DTOs; map first.
-- Config `~/.config/openfan/config.json` (camelCase): curves, controls, `SensorAliases` (id→friendly),
-  `GpuPowerLimitsW` (uuid→W), WindowX/Y/W/H geometry.
+- Config `$XDG_CONFIG_HOME/openfan/config.json` (camelCase): curves, controls, `SensorAliases` (id→friendly),
+  `GpuPowerLimitsW` (uuid→W), `CpuPowerLimitW` (int? watts), `CpuKeepAfterReboot` (bool), WindowX/Y/W/H geometry.
+  A named-profile sidecar `$XDG_CONFIG_HOME/openfan/active` holds an absolute path to the real active file — so the
+  live config is often NOT `config.json` (the user's is `~/Documents/openfan2.json`). Check the pointer before
+  reasoning about what is saved. `CpuLimitShouldReassertOnStart` is derived and `[JsonIgnore]`: never persisted.
 - Sensor ids: `hwmon:{chip}:{n}:temp:{label}` / `…:pwm:{n}` / `…:fan:{n}`; GPU `nvml:{uuid}:temp:core`,
   `nvml:{uuid}:fan:{n}` (control + live-% readback), `nvml:{uuid}:tach:{n}`.
-- **Power limits**: `FanApp.SetGpuPowerLimit(uuid, watts)` → helper `power` cmd if socket exists else direct NVML;
+- **Sleep / resume (logind):** `LogindMonitor` watches `PrepareForSleep`. Suspend → `Controller.RestoreAll()` (fans
+  handed back to firmware before sleep); resume → ~1.5 s settle, then `Controller.ResetApplies()`, because wake often
+  resets `pwm_enable` on this EC. A `Suspended` flag suppresses curve writes across the window (`FanApp.cs:54-68`).
+  Synthetic test: `sudo busctl --system emit /org/freedesktop/login1 org.freedesktop.login1.Manager PrepareForSleep b true|false`.
+- **GPU power limits**: `FanApp.SetGpuPowerLimit(uuid, watts)` → helper `power` cmd if socket exists else direct NVML;
   saved on success only; reapplied at startup. NvmlBackend also exposes `SnapshotAll()` (full per-GPU telemetry record).
+
+### CPU socket power (PPT) — the design that took the most verification
+**Two control surfaces, and this is the crux of every persistence question:**
+1. **HSMP** `SET_SOCKET_POWER_LIMIT` (message 0x05), exposed as hwmon `power1_cap` → writes **volatile SMU state**.
+   Takes effect immediately, forgotten at boot. Root write; world read.
+2. **UEFI CBS variable** `AmdSetupSHP` / GUID `3a997502-647a-4c82-998e-52ef9486a247` → holds what firmware programs
+   at boot (PPT default, TDP, TjMax). Readable at runtime from the world-readable efivarfs copy; **writes are refused
+   with `EFI_SECURITY_VIOLATION`** while Secure Boot is on — verified, including a control test where rewriting an
+   unrelated variable no-op also failed, so the block is global, not field-specific. (`S_IMMUTABLE` would give
+   `EPERM` from `inode_permission`; `EACCES` only ever comes from firmware status mapping.)
+
+Therefore: **PPT is writable but not persistent; TDP/TjMax are persistent but not writable.** Persistence = re-apply
+at boot, never "save". No write path to the CBS variable is offered anywhere in this codebase; changing TDP/TjMax
+means Setup. Full write-up: [`tools/hsmp-control/README.md`](tools/hsmp-control/README.md).
+
+- `Hw/CpuPowerControl.cs` — implements `ICpuPowerWriter`. Window **100–300 W**, deliberately identical to the C tool's
+  `100000..300000 mW`. W→µW conversion (`power1_cap` is microwatts; a `/1_000` bug here once displayed 250 W as
+  250000 W), refuses above `power1_cap_max`, **verifies every write by readback** and reports "firmware settled at X
+  instead of Y (clamped)". `SetBootLimitWatts(int?)` writes `/etc/hsmp-control/ppt_mw` (milliwatts, 0644, temp+rename)
+  or deletes it. `BootPersistenceWired()` checks the four systemd load paths for `hsmp-control-apply.service`,
+  treating a masked unit (symlink to `/dev/null`) as absent — so the UI can never promise persistence that has no
+  executor.
+- `Hw/CbsSetupReader.cs` — reads + validates the CBS blob: magic `0xE5AF127C`, control bytes (`manual|auto`), value
+  ranges; **fails closed** (short file, magic mismatch, unknown control byte, out-of-range → `Ok=false` + reason) and
+  maps Auto to `null`, never 0. Offsets from BIOS 0617's AMI mapping table (TDP ctl/val 1043/1044, PPT 1048/1049,
+  TjMax 1053/1054); `CBS_SETUP_VAR` overrides the path, which is how degradation paths are tested.
+- `Hw/HsmpLimitConfig.cs` — reads the desired boot limit from `/etc/hsmp-control/ppt_mw` (`#` comments skipped,
+  null when absent/malformed). Deliberately applies no range policy: it reports intent, `CpuPowerControl` decides.
+- **Helper commands:** `cpupower <W>|default` and `cpuboot <W>|clear`, validated in the parser *and* again in
+  `CpuPowerControl`. Arity gotcha: `"cpupower 250"` is **two** parts with the value in `parts[1]` (a `Length == 3`
+  check made every command answer `err unknown command`). The helper starts even with no NVIDIA driver as long as
+  `amd_hsmp_hwmon` exists, and logs `CPU PPT available` at startup.
+- **Persistence policy (`AppSettings.CpuLimitShouldReassertOnStart = CpuPowerLimitW is not null && CpuKeepAfterReboot`):**
+  *keep after reboot* is the single switch for both mechanisms — the boot file AND whether the app re-asserts on
+  launch. Unticked ⇒ nothing restores the limit after a boot, including openfan itself; ticked ⇒ the unit applies it
+  before login and the app does not rewrite `/etc` at startup (so an admin-installed config survives launching the
+  app). Bug history worth remembering: the constructor used to re-apply any saved limit unconditionally, so an
+  **unchecked** box still produced a limit that survived reboot — user-reported, fixed, regression-tested.
+- **Failure messaging:** a helper older than these commands answers `err unknown command`; `FanApp` maps that to
+  "openfan-helper is out of date … reinstall it" instead of leaking the raw string. A live write that succeeds but
+  whose boot-file step fails reports "limit applied, but …" rather than a flat failure; a successful apply with no
+  unit installed shows an **amber** note, never green.
 
 **Key files**
 - `src/OpenFan.Core/` — portable engine: Curves/, FanController, SettingsStore, CalibrationMap/Rules.
 - `src/OpenFan.Linux.Hw/` — HwmonBackend, NvmlBackend (+NvmlNative P/Invokes incl. telemetry + SetPowerManagementLimit),
-  CompositeActuator, InventoryMerger, NvmlHelperClient, HelperProtocol/Server/Sessions (`IGpuPowerWriter`).
-- `src/OpenFan.Linux.App/` — MainWindow.axaml(.cs) (~1500 lines: nav rail; Home cards+curves; GPUs page builder;
-  Sensors page builder), GraphEditorWindow, CalibrationWindow, FanApp, tray.
+  CompositeActuator, InventoryMerger, NvmlHelperClient, HelperProtocol/Server/Sessions (`IGpuPowerWriter`,
+  `ICpuPowerWriter`), HsmpPowerReader (read-only telemetry), CpuPowerControl, CbsSetupReader, HsmpLimitConfig.
+- `src/OpenFan.Linux.App/` — MainWindow.axaml(.cs) (~2700 lines: nav rail; Home cards+curves; CPU page builder;
+  GPUs page builder; Sensors page builder), GraphEditorWindow, CalibrationWindow, FanApp, tray.
+- `tools/hsmp-control/` — vendored C CLI (`hsmp_control.c`), systemd unit, `install-persistence.sh`, `test-cli.sh`.
 
 **UI conventions**
 - Tokens: accent `#F0A03C`, window `#171B1F`, card `#1E2429`, border `#2C363D`, secondary `#8FA0AA`,
-  nav rail `#101416`, FAB bg `#4A5D68`, VRAM bar `#4FC3F7`, ok-green `#7BC97B`, bad-red `#EF6B6B`.
+  nav rail `#101416`, FAB bg `#4A5D68`, VRAM bar `#4FC3F7`, ok-green `#7BC97B`, warn-amber `#E5C07B`, bad-red `#EF6B6B`.
 - Styles: `RadioButton.nav` (orange bar), `Button.accent`, `Button.fab`, `TextBox.cardname` quiet-affordance rename box.
 
 **Gotchas catalog (all personally verified)**
@@ -114,12 +197,22 @@ DISPLAY=:0 XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 \
 - NVML notes: GetPerformanceState (not GetCurrentPState); GetPcieThroughput counters 0=TX/1=RX KB/s; process structs
   are `{uint pid; uint pad; ulong usedGpuMemory; …}` ×24B; rc 7 = INSUFFICIENT_SIZE on count probe; PowerMax constraint
   can read 0 (unbounded) — clamp UI max to 800 in that case.
+- `HelperServer` shutdown: a session's pending `ReadLineAsync(_cts.Token)` throws `OperationCanceledException` when
+  the service stops with a client attached. That must be caught (and teardown wrapped in `finally`) or
+  `DisposeAsync` rethrows and skips socket removal — fixed, regression test in `CpuPowerControlTests.cs`.
+- Unit-test flakiness was real, not environmental: it came from the above. If a socket test flakes, suspect the
+  product code before adding retries.
 
 ## 5. Pages
 **Home** — fan cards (click-to-rename, ☑Curve + dropdown, cmd%/measured% + RPM value line, Calibrate link where a
 real tach reads, error line) then Curves section (flat ±5/box, graph live-sensor dropdown + mini preview + Edit,
 mix function+children; × delete with unassign flyout). Header: Apply curves · Refresh · ⋮ Save/Load setup · Exit · clock.
 FABs Flat/Graph/Mix create curves.
+**CPU** (`49546a8`) — stats row **Temp · Socket power · PPT · TDP · TjMax · Load · Frequency · RAM used**; load and
+socket-draw bars; `Socket power limit (PPT)` editor (100–300 W, ±5 step) with *keep after reboot* checkbox + Apply
+(green applied / amber "unit not installed" / red failure with reason); note line shows the **flashed** PPT, which
+legitimately differs from the live cap after an apply. TDP/TjMax are display-only with tooltips explaining they come
+from BIOS flash. Nothing here affects fan behaviour by design.
 **GPUs** (`144e7e6`, fixes `f8825ec`) — per card: header (GPU n · name busId / uuid), Power [W] Apply editor
 (green/red note; persists + saves config), GPU util bar + VRAM used/total GiB bar, stats row Temp · Power draw/limit ·
 P-State · Fan % · Fan RPM (— on 595) · Clocks G/S/M, PCIe gen×width + RX/TX rates, process table top-12 by VRAM
@@ -132,15 +225,26 @@ aliases drive every sensor dropdown app-wide (curve cards rebuild on commit); to
 validation trio gating Ok, get-or-create Cfg() rows.
 
 ## 6. Recent commits (newest first)
-`0a3d0eb` Sensors fan-% + collapsible subgroups · `e00092d` PageUp/Down scroll · `7c4808d` Sensors page + aliases ·
-`f8825ec` GPU page fixes + Ctrl+1..6 · `d83b7fc` docs · `a357a8e` nav rail visibility fix · `144e7e6` GPUs page +
-power limits via helper · `3b808a7` STATUS rewrite · `b36f825` calibration crash fix · `f62c927` calibration window.
+`b60265f` vendored hsmp-control + persistence installer · `49546a8` CPU socket power control (PPT settable,
+TDP/TjMax read-only, checkbox policy fix, helper shutdown fix) · `d3c322e` CPU page labels honour HSMP semantics ·
+`e96980c` HsmpPowerReader extraction + `--cpu-power` · `2368667` CPU page RAM · `0a3d0eb` Sensors fan-% + collapsible
+subgroups · `e00092d` PageUp/Down scroll · `7c4808d` Sensors page + aliases · `f8825ec` GPU page fixes ·
+`144e7e6` GPUs page + power limits via helper.
 
 ## 7. Pending / next
 
-- **CPU page** (nav ▸ CPU / Ctrl+2): package Temp, Power (PPT), PPT limit, Load %, Frequency — live per refresh tick; power/cap from amd_hsmp hwmon, temp from board hwmon (Tctl/Tdie/CPU Package), load from /proc/stat deltas, freq = max cpufreq across cores. Degrades to '—' per missing source.
+**Verification still open (say so honestly if asked what is proven):**
+1. **Reboot with the boot override present.** Unticked-across-reboot is user-verified (firmware's 295 W came back).
+   Ticked-across-reboot at a value differing from BIOS has not been observed end to end — the mechanism is verified
+   (`systemctl` apply sets live == configured) but not across a cold boot.
+2. **Sub-200 W behaviour** on this board: window allows 100 W; nobody has confirmed the SMU accepts it (readback
+   would report a clamp, so worst case is visible, not silent).
+3. Optional: *reset to BIOS default* button on the CPU tab — `cpupower default` exists in the protocol and is tested;
+   only the UI control is missing.
+
+**Feature/packaging backlog:**
 1. `.deb` packaging (dpkg-deb script); polkit alternative to the helper service. Manual chain in packaging/README.md.
-2. Helper protocol tests exist for `power`; consider integration test for SnapshotAll against live NVML (skip on CI).
+2. Consider an integration test for SnapshotAll against live NVML (skip on CI).
 3. Nice-to-haves: calibration-estimated RPM while applying; recent-setups submenu; collapsed-state persistence for
    Sensors subgroups; sensor aliases also in tooltips of dropdown items; card drag-reorder (⋮ Move up/down shipped instead).
 
@@ -153,16 +257,26 @@ FOCUSED window and fresh Openbox maps don't focus. Always pass the name: `./hd k
 Do NOT use `xdotool key --window` (XSendEvent) on Avalonia — unreliable. NB: this port has NO Ctrl+1..7 nav shortcuts
 (Windows-only); implemented config keys are Ctrl+N / Ctrl+S / Ctrl+Shift+S / Ctrl+L.
 
-**DONE this pass (2026-09-22 late):** ⋮ card menus (pair tach/move/hide/release) · ControlOrder + hidden pills ·
-Settings page (general/hidden/system incl. conflict detector) · autostart toggle · Theme accent picker (live,
-shared mutable brush + DynamicResource) · tray Apply-curves item · About page · **logind sleep/resume**
-(LogindMonitor: suspend→RestoreAll, wake+1.5s→ResetApplies; Tmds.DBus.Protocol MUST stay pinned to 0.20.0 —
-the version Avalonia.FreeDesktop loads; upgrading it TypeLoads `Connection` at X11 init and crashes the app.
-Test signals: `sudo busctl --system emit /org/freedesktop/login1 org.freedesktop.login1.Manager PrepareForSleep b true|false`
-— MatchRule drops Sender so synthetic emits work).
+**DONE since last handover (2026-09-24):** CPU tab PPT control end to end (helper commands, µW conversion, readback
+verification, 100–300 W window shared with the C tool) · CBS reader for TDP/TjMax/flash-PPT with fail-closed
+validation · persistence model + `install-persistence.sh` + enabled boot unit on this machine · checkbox made the
+single persistence switch (fixes unchecked-box-survives-reboot bug) · boot-unit detection with amber warning ·
+helper shutdown cancellation fix · stale-helper error translated into an actionable message · CPU stats row relayout
+(PPT/TDP/TjMax prominent) · vendored `tools/hsmp-control` + docs · rebuild-proof desktop launcher.
 
 ## 8. Standing cautions
 - Smoke runs load the user's REAL config with real group access — fans may briefly follow curves during test windows.
   GPU auto-restores via helper EOF on disconnect; board resumes next app run. Keep smoke runs short; disclose long ones.
+- Anything that writes `power1_cap` changes CPU power behaviour machine-wide and is **not** restored by the helper on
+  disconnect (by design). Prefer out-of-window values when probing the socket — they are refused before any write, so
+  capability checks have no side effects.
+- Rebooting the user's machine needs explicit permission; it is the only way to prove boot-time behaviour.
+- **Pushing to GitHub:** no credential lives in git config on this machine. The user supplies a token file; feed it to
+  git through a mode-700 `GIT_ASKPASS` helper that reads the file itself (never put the secret in argv, in a remote URL,
+  or in git config), run `git push -u origin main`, then delete the helper. Never write the token path or value into
+  these docs. If pushing fails with "could not read Username", the repo is simply being read anonymously — pushes need
+  that credential.
 - Write tool requires a read-tool observation after files are touched by bash/python/sed (python in-place edits fine).
 - `grep -c` with 0 matches exits 1 — harmless inside chains, but see §2 commit-chain caution.
+- Do not push firmware images, extracted BIOS/IFR blobs, or NVRAM variable dumps. The research tree that produced
+  the CBS offsets lives outside this repo and stays there deliberately.

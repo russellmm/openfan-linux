@@ -57,13 +57,34 @@ GPU2  RTX PRO 6000 Blackwell WS @ E1:00.0  GetNumFans=2  fan0=30%  MinMax=30–1
 
 - `fancontrol.service`: inactive. No `coolercontrold`/`nvfancontrol` processes. Clean field.
 - `.NET SDK 8.0.131` installed via apt on 2026-09-21 — Phase 1 unblocked.
-- udev PWM ACL (spec §3.4) **is** needed for board fans (`pwm*` nodes are root-owned), applied to the `nct6799` device; NVML needs no extra privilege here — plain user works.
+- udev PWM ACL (spec §3.4) **is** needed for board fans (`pwm*` nodes are root-owned), applied to the `nct6799` device.
+  *(Corrected same day — see the write-privilege finding above: NVML fan **reads** work as uid 1000, but fan/config
+  **writes** are root-gated by the driver, which is why `openfan-helper` exists. This line was written before that probe.)*
 
 ## Implications for the plan
 
 1. **v1 scope = full OpenFan**: 7 board PWM controls (chip `nct6799`) + per-fan control of 2×PRO 6000 and the 5060 Ti, Flat/Graph/Mix curves fed by k10temp Tctl / ASUS EC / SuperIO / NVMe temps, apply/restore, tray, configs. No scope fork needed.
 2. Curve sources worth surfacing: `k10temp Tctl` (primary CPU), `nct6799 PECI/TSI Agent 0 Calibration`, `asusec CPU Package`, NVMe temps. Note SuperIO fan headers have no per-header labels in hwmon (`fanN_label` empty) — UI should show board-style hints where safe, else `Fan N`.
 3. Restore semantics: cache `pwmN_enable` before first write; on this chip "auto" = **5**, not 2. If the app ever dies without restoring, BIOS duty-cycling resumes on its own (chip is in auto mode by default).
-4. Privilege: NVML as plain user ✓. Board PWM needs one-time sudo for udev ACL + modules-load.d; after that the app never runs elevated.
+4. Privilege: NVML **reads** as plain user ✓, NVML **writes root-only** (see finding above → helper daemon). Board PWM
+   needs one-time sudo for udev ACL + modules-load.d; after that the app itself never runs elevated.
 5. **RESOLVED (2026-09-21, root run):** `--apply-once nvml:GPU-6d3e…:fan:0 55` under sudo — fan0 ramped 42→53% toward command while fan1 held exactly 30% throughout; `SetDefaultFanSpeed_v2` returned control to the driver (fan0 back on auto curve). **Per-fan PRO 6000 control works on Linux driver 595 behind the root gate.**
 6. `nvmlDeviceGetFanSpeedRPM` returns an error on these Blackwell cards with driver 595 → tach RPM for GPU fans stays n/a via NVML; percent read-back works (`GetFanSpeed_v2`). UI should hide the RPM half of GPU fan cards, not show a fake 0.
+
+## HSMP socket power — follow-up (2026-09-24)
+
+The Phase 0 table lists `amd_hsmp_hwmon` as a fan-less chip, which is true but undersells it: it is the CPU
+**power** interface, and getting its semantics right took dedicated hardware work after this spike.
+
+- `power1_input` = live socket power, `power1_cap` = live socket power limit — both **microwatts**.
+  `power1_cap_max` reads 2000 W: a firmware ceiling, not a sane target.
+- Writing `power1_cap` (HSMP `SET_SOCKET_POWER_LIMIT`) works only as root → crosses the helper socket like NVML writes.
+  The value is **volatile SMU state**: it does not survive a reboot, so "set and forget" is impossible by design.
+- BIOS-side limits live in UEFI var `AmdSetupSHP` (CBS): on this board PPT default 295 W, TDP 245 W, TjMax 80 °C.
+  Readable at runtime; **writes are refused with `EFI_SECURITY_VIOLATION` while Secure Boot is enabled** — verified,
+  including a control test where no-op rewriting of an unrelated variable also failed (so the block is global). This is
+  firmware policy, not an efivarfs flag: `S_IMMUTABLE` would have produced `EPERM`, not `EACCES`.
+- Consequence implemented everywhere: PPT is settable-but-not-persistent, TDP/TjMax persistent-but-not-settable, and
+  persistence means re-applying at boot via `/etc/hsmp-control/ppt_mw` + `hsmp-control-apply.service`.
+  Design rationale in [`openfan-ubuntu.md`](openfan-ubuntu.md) §4.6; tool + installer in
+  [`tools/hsmp-control/`](tools/hsmp-control/README.md).

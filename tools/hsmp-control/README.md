@@ -107,6 +107,8 @@ another file, which is also how the degradation paths are tested.
 
 ## Tests
 
+Needs `cc` and `python3` — the script builds the tool, then asserts against its JSON output.
+
 ```sh
 ./test-cli.sh
 ```

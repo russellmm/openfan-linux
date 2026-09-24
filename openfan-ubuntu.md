@@ -1,6 +1,12 @@
 # Design & implementation plan: OpenFan on Ubuntu
 
-**Status:** Approved — implementation underway (Phase 2); hardware spike answers in `spike-notes.md`  
+> **As-built status (2026-09-24):** implemented and daily-driven on the target machine. This file is the approved
+> plan; where reality diverged, the section was updated in place and the reason stated. The largest post-plan addition
+> is **§4.6 HSMP socket power** (Threadripper PPT), which did not exist when this was written. Current state, open
+> verification items and the gotchas catalog live in [`STATUS.md`](STATUS.md); hardware findings journal in
+> [`spike-notes.md`](spike-notes.md).
+**Status:** Approved and **implemented through Phase 5** on the target machine (daily driver). Phase 6
+(systemd --user service, `.deb`, liquidctl) not started. Live state: [`STATUS.md`](STATUS.md); spike answers: [`spike-notes.md`](spike-notes.md)  
 **Date:** 2026-09-16  
 **Companion:** Windows OpenFan at `E:\hermes_working\OpenFan\` (WPF + LHM + NVML)  
 **Intent:** Same product job as Windows OpenFan — own motherboard/case/AIO fans and NVIDIA GPU fans with Flat / Graph / Mix curves — on Ubuntu, without LibreHardwareMonitor, WinRing0, HWiNFO, or WPF.
@@ -19,7 +25,8 @@ This is not a pixel port of the WPF app. It is a Linux-native OpenFan that **reu
 - Discovers NVIDIA GPUs via **NVML** (`libnvidia-ml.so`) — same per-fan `SetFanSpeed_v2` model as Windows, including PRO 6000 independent fans and a **30% floor**.
 - Binds controls to **Flat / Graph / Mix** (Max / Min / Average).
 - Calibrates PWM↔RPM, pairs tachs, hides unused controls, drag-reorders cards.
-- **Apply curves** is off until checked. Exit restores kernel/BIOS automatic (hwmon `pwmN_enable=2` or chip default) and NVML default fans.
+- **Apply curves** is off until checked. Exit restores each control's **cached pre-takeover** `pwmN_enable`
+   (this board boots at `5`; the code never hardcodes `2`) and NVML default fans.
 - Dark Fan Control–style cards; accent color; named configs.
 
 ### Why Ubuntu is a different product underneath
@@ -30,7 +37,7 @@ This is not a pixel port of the WPF app. It is a Linux-native OpenFan that **reu
 | HWiNFO Gadget registry | hwmon labels, `sensors`, optional `liquidctl` / HID |
 | `requireAdministrator` + scheduled task | udev + `pwm` group / CAP, optional polkit |
 | WPF + WinForms tray | GTK4 or Avalonia + StatusNotifierItem |
-| NCT6701D via LHM SuperIO | `nct6775` / `nct6683` kernel driver (board-dependent) |
+| NCT6796D-S SuperIO (Windows: LHM) | `nct6775` kernel driver → chip name `nct6799`, 7 PWMs + `asusec` |
 | Sleep: reopen LHM + re-SetSoftware | Resume: re-write `pwmN` every tick (same EC fight) |
 
 ### Success (testable)
@@ -59,7 +66,8 @@ This is not a pixel port of the WPF app. It is a Linux-native OpenFan that **reu
 Primary user is still **russell**. Two plausible Ubuntu targets:
 
 **A. Same TRX50 + 9970X + PRO 6000s (dual-boot or future Linux box)**  
-- SuperIO: Nuvoton NCT6701D — Linux support is **not** as mature as Windows LHM. Need a spike: does `nct6775` bind? Are `pwm1`…`pwm7` writable?  
+- SuperIO: **resolved by the spike** — the board's Nuvoton **NCT6796D-S** binds via `nct6775` as chip name **`nct6799`**
+   with 7 PWM controls, plus `asusec`. The plan's earlier "NCT6701D" naming was wrong for this hardware.  
 - CPU: `k10temp` — Tctl/Tdie; CCD temps on Zen 5 HEDT may need kernel ≥ 6.x with the same k10temp map we patched into LHM (0x599F0). If the running kernel lacks Turin CCD, Graph sources stay Tctl until a kernel bump.  
 - NVIDIA: proprietary driver + NVML. MCDM/TCC are Windows; on Linux the cards are normal `nvidia` devices. Fan set still needs a driver that implements NVML fan APIs (same 30% floor).
 
@@ -97,7 +105,7 @@ Same as Windows: **one user session process**.
 - Window close (X) → hide to tray (StatusNotifierItem); curves keep applying.
 - **Exit** → restore hwmon auto + NVML default, then quit.
 - Single instance: `flock` on `$XDG_RUNTIME_DIR/openfan.lock` (not a Windows mutex).
-- Tick ~1 s: read sensors, evaluate curves, **write PWM every tick** (do not skip when % unchanged — same SuperIO/EC lesson as NCT6701D).
+- Tick ~1 s: read sensors, evaluate curves, **write PWM every tick** (do not skip when % unchanged — same SuperIO/EC lesson, verified on `nct6799`).
 - Apply checkbox persisted. Missing temp → skip that control (do not restore BIOS after two empty polls).
 - Resume from sleep: `org.freedesktop.login1` PrepareForSleep signal → reset applies and keep ticking (NVML + hwmon).
 
@@ -123,12 +131,22 @@ Writing `/sys/class/hwmon/hwmonX/pwmN` usually requires root **or** the file to 
 1. Ship a udev rule: `SUBSYSTEM=="hwmon", ACTION=="add", RUN+="/usr/local/lib/openfan/pwm-acl.sh"` that `chgrp` pwm nodes to group `openfan` and `chmod g+w`.
 2. Install user in group `openfan` (log out/in once).
 3. App runs **as the user**, not as root. No pkexec on every tick.
-4. NVML fan set typically works as the logged-in user if the NVIDIA device nodes are accessible (`video` / `render` group). If `nvmlDeviceSetFanSpeed_v2` returns NoPermission, show a clear Settings message (do not silently monitor-only forever without saying why).
+4. NVML fan/config **writes are root-gated** on this driver — measured `NO_PERMISSION` as uid 1000 even with world-writable
+   `/dev/nvidia*`. GPU fan writes therefore go through `openfan-helper` (§3.4); reads stay in-process.
 
 **Rejected for v1:** setuid root binary (too easy to get wrong).  
 > **Linux finding (spike 2026-09-21):** NVML fan *writes* return NO_PERMISSION for uid 1000 even with world-writable `/dev/nvidia*` — the driver gates config writes on root euid. hwmon PWM is fine via the ACL. So a privileged path for GPU fans is **required**, not conditional.
 
-**Helper: BUILT 2026-09-21.** `src/OpenFan.Linux.Helper` → root systemd service `openfan-helper`; Unix socket `/run/openfan/helper.sock` (0660 root:openfan), line protocol accepting only `nvml:*:fan:*` ids, restore-on-disconnect per session (crash-safe). GUI/CLI auto-route GPU writes through it when the socket exists; direct NVML remains for sudo debugging. polkit/user UI for install deferred.
+**Helper: BUILT 2026-09-21, extended 2026-09-24.** `src/OpenFan.Linux.Helper` → root systemd service `openfan-helper`;
+Unix socket `/run/openfan/helper.sock` (0660 root:openfan). It exposes exactly two capabilities: NVIDIA fan
+set/restore (`set` / `default`, only `nvml:*:fan:*` ids, restore-on-disconnect per session so a crash cannot leave a
+fan pinned) and power limits — GPU (`power <uuid> <W>`) and CPU socket power (`cpupower <W>|default`,
+`cpuboot <W>|clear`). Nothing else: no shell, no arbitrary paths. Power limits are intentionally **not** restored on
+disconnect. The daemon starts even with no NVIDIA driver present as long as `amd_hsmp_hwmon` exists, and logs which
+capabilities it has. GUI/CLI auto-route writes through it when the socket exists; direct NVML/direct sysfs remain for
+root debugging. Because the deployed helper is a **published binary**, changing helper code without reinstalling it
+makes the app look broken (`err unknown command`) — see [`packaging/README.md`](packaging/README.md). polkit/user UI
+for install deferred.
 
 ---
 
@@ -171,7 +189,8 @@ Prefer `name` + canonical labels over raw `hwmon3` index (index can change at bo
 
 **SetDefault(id):**
 
-- Write `pwmN_enable = 2` if the chip supports auto; else `1` with last BIOS-ish value is not knowable — document as “auto if the driver supports it”.
+- Restore writes back the cached `_initialEnable[id]` captured before the first takeover — **never a hardcoded 2**.
+   This board's "auto" is `5`; falling back to `2` only happens if nothing was ever captured (`HwmonBackend`).
 - Cache the enable mode **before first manual write** so restore is accurate (`_initialEnable[id]`).
 
 **PRO / NVIDIA hwmon:** the `nvidia` hwmon node may expose GPU temp. **NVML still owns GPU fans** if both exist (same merge rule as Windows).
@@ -180,7 +199,7 @@ Prefer `name` + canonical labels over raw `hwmon3` index (index can change at bo
 
 **Spike (must happen before promising TRX50):**
 
-- On Ubuntu with NCT6701D: `ls /sys/class/hwmon/*/name`, `pwm*_enable`, `pwm*`.  
+- On Ubuntu with `nct6799`: `ls /sys/class/hwmon/*/name`, `pwm*_enable`, `pwm*`.  
 - If no PWM files: OpenFan Linux can still do **GPU fans + display board temps**, but case fans stay out of v1 for that board until a driver exists. That is an explicit fork in the plan, not a silent failure.
 
 ### 4.2 NvmlBackend (port of Windows NVML)
@@ -222,6 +241,43 @@ Detect and warn (Apply stays off until the user confirms):
 
 Do not fight silently.
 
+### 4.6 HSMP socket power — Threadripper PPT (added after the v1 plan)
+
+A power knob on the CPU tab, deliberately **not** part of fan control. The whole design follows from one measured
+fact: this platform exposes two different surfaces, and neither one does both jobs.
+
+| Surface | Contents | Runtime access | Across reboot |
+|---|---|---|---|
+| HSMP `SET_SOCKET_POWER_LIMIT` (msg 0x05), hwmon `power1_cap` (µW) | live socket power limit | write requires root; read is free | **lost** — volatile SMU state |
+| UEFI CBS var `AmdSetupSHP` (`3a997502-647a-4c82-998e-52ef9486a247`) | BIOS defaults: PPT, TDP, TjMax | read free; **write refused** `EFI_SECURITY_VIOLATION` while Secure Boot is on | persists |
+
+So PPT is settable but not persistent, and TDP/TjMax are persistent but not settable. Consequences, all implemented:
+
+- **Persistence means re-applying**, never saving. `/etc/hsmp-control/ppt_mw` (milliwatts) +
+  `hsmp-control-apply.service` (`ConditionPathExists`, so an unconfigured system runs nothing). Vendored with a
+  verifying installer under [`tools/hsmp-control/`](tools/hsmp-control/README.md).
+- **The *keep after reboot* checkbox is the single persistence switch** — it governs both the boot file and whether
+  openfan re-asserts the saved limit when it launches. Unticked means nothing restores the limit after a boot,
+  including this app; that was a real bug (the constructor re-applied any saved limit unconditionally) and is
+  regression-tested via `AppSettings.CpuLimitShouldReassertOnStart`.
+- **No write path to the CBS variable exists anywhere.** Verified: firmware refuses runtime `SetVariable` under
+  Secure Boot — even a no-op rewrite of an unrelated variable fails, so the block is global (`EACCES` from firmware
+  status mapping; `S_IMMUTABLE` would have been `EPERM`). TDP/TjMax are displayed read-only with tooltips saying why.
+  Editing them means Setup, which writes during boot services and needs no Secure Boot change.
+- **Every live write is verified by readback** and a clamp is reported as a clamp. Window 100–300 W, identical in the
+  C tool and the C# writer; `power1_cap_max` (2000 W here) is a firmware ceiling, never an offer.
+- **CBS parsing fails closed.** Magic + control-byte + range validation; Auto ⇒ `null`, never 0; offsets compiled from
+  BIOS 0617's AMI mapping table and not validated elsewhere, so an unreadable/moved field yields "unavailable" rather
+  than a plausible number.
+- Reads need no privileges at all (`HsmpPowerReader` on hwmon + the world-readable efivarfs copy). Only writes cross
+  into the helper.
+
+### 4.7 Where each CPU number comes from
+
+`socketPowerW` / `socketPowerCapW` ← `power1_input` / `power1_cap`; `pptBiosMw`, `tdpMw`, `tjmaxC` ← CBS variable;
+`pptDesiredMw` ← `/etc/hsmp-control/ppt_mw`; `bootPersistenceInstalled` ← presence of an unmasked boot unit. Keeping
+live / desired / flashed separate is what makes drift visible instead of quietly averaged away.
+
 ---
 
 ## 5. Curves, apply loop, config
@@ -236,11 +292,17 @@ Do not fight silently.
 - Mini graph: first→last curve points, pad, no live-temp X stretch.
 - Hide / Unhide, drag reorder, named configs.
 
-**Config path:** `$XDG_CONFIG_HOME/openfan/config.json` (default `~/.config/openfan/config.json`) + `configs/` for named files. Same JSON shape as Windows where possible (`controls`, `curves`, `applyCurves`, `accentColor`, `startupDelaySeconds`, `powerTargetsWatts`).
+**Config path:** `$XDG_CONFIG_HOME/openfan/config.json` (default `~/.config/openfan/config.json`) + named profiles,
+with a sidecar `$XDG_CONFIG_HOME/openfan/active` holding the **absolute path** of the currently selected file — so
+the live config is frequently *not* `config.json` (on this machine it is `~/Documents/openfan2.json`). Check that
+pointer before concluding anything about what was saved; a wrong-file assumption produced a wrong diagnosis once.
+Same JSON shape as Windows where possible (`controls`, `curves`, `applyCurves`, `accentColor`,
+`startupDelaySeconds`, `powerTargetsWatts`), plus Linux additions `gpuPowerLimitsW`, `cpuPowerLimitW`,
+`cpuKeepAfterReboot`. Derived values (e.g. `CpuLimitShouldReassertOnStart`) are `[JsonIgnore]` and never persisted.
 
 **Do not** expect to load a Windows `%LOCALAPPDATA%\OpenFan\config.json` and have board fans map. GPU UUID curves *might* import; document a one-way “Import GPU curves from Windows config” as v1.1.
 
-**Log:** `~/.local/share/openfan/openfan.log` (or `$XDG_STATE_HOME`).
+**Log:** rolling error journal at `$XDG_STATE_HOME/openfan/errors.log` (`ErrorLog.cs`), opened from the ⋮ menu.
 
 ---
 
@@ -250,10 +312,11 @@ Do not fight silently.
 |---------|-----------|
 | Home controls/curves | Same card model |
 | GPUs page | Same, minus driver-mode switch |
+| *(Windows: covered by HWiNFO, no page)* | **CPU page** — socket telemetry (temp, draw, PPT cap, TDP, TjMax, load, frequency, RAM) + PPT limit editor with *keep after reboot*. See §4.6 |
 | Settings | Start at login (`~/.config/autostart/openfan.desktop` or systemd --user), start minimized, sensor delay, nicknames, Edit sources (hwmon chips on/off, NVML on/off), Hidden, Plugins (hwmon list **is** shown — unlike LHM it is usually small enough; cap at ~80 rows with filter) |
-| Theme | Dark + accent picker (same default `#E24B4B`) |
+| Theme | Dark + accent picker; **this port's default accent is `#F0A03C`** (`AccentHex.Default`), not the Windows `#E24B4B` |
 | Tray | StatusNotifierItem: Open / Exit |
-| About | OpenFan version; **hwmon driver names**; NVML driver version; **Check for OpenFan updates** (GitHub). No LHM nuget check. Optional: kernel version + `pwm` ACL status |
+| About | OpenFan version; **hwmon driver names**; NVML driver version; **"Check for OpenFan updates" (GitHub) is NOT implemented** — no release/API call exists in this port. No LHM nuget check. Optional: kernel version + `pwm` ACL status |
 
 **Edit sources** on Linux = enable/disable individual hwmon chips (by `name`) + NVML. Not LHM Motherboard/CPU checkboxes.
 
@@ -265,7 +328,10 @@ Do not fight silently.
 - Files:
   - `/opt/openfan/OpenFan` (or `~/.local/opt/openfan`)
   - `/etc/udev/rules.d/99-openfan-pwm.rules`
-  - `/usr/share/applications/openfan.desktop`
+  - `~/.local/share/applications/openfan.desktop` (user-scoped; written by `packaging/install-icons.sh`, or by
+    `packaging/install-launcher.sh` which also creates the rebuild-proof `~/.local/bin/openfan` wrapper and a
+    desktop icon — on GNOME a `~/Desktop/*.desktop` must be marked trusted with
+    `gio set … metadata::trusted true` or it will refuse to launch)
   - optional `~/.config/autostart/openfan.desktop`
 - Dependencies: NVIDIA driver (for GPU), kernel hwmon. `lm-sensors` recommended for `sensors-detect` once.
 - **No** `sudo ./OpenFan` as the supported run mode.
@@ -274,11 +340,23 @@ Do not fight silently.
 
 ## 8. Security
 
-- Never run the GUI as root.
+- Never run the GUI as root. (As built: the app is unprivileged; only `openfan-helper` runs as root.)
 - Udev ACL is write access to PWM only, not arbitrary sysfs.
 - Tick writer validates percent 0–100 and known ids.
+- Helper socket `0660 root:openfan`; protocol is an allowlist — `ping`, `set`/`default` on `nvml:*:fan:*` with
+  percent 0–100, `power <uuid> <W>`, `cpupower <W>|default`, `cpuboot <W>|clear`, `quit`. No shell, no paths.
+- CPU watts are bounded **twice** (protocol parser and `CpuPowerControl`, which also refuses above
+  `power1_cap_max`), and each write is confirmed by readback so a firmware clamp surfaces as an error.
+- `cpuboot` touches exactly one path, `/etc/hsmp-control/ppt_mw` (or `$HSMP_LIMIT_CONFIG`), written as
+  temp-file + rename. It cannot be pointed anywhere else by protocol input.
+- Helper shutdown is cancellation-safe: stopping the service with a client attached drains sessions, restores owned
+  fans, and removes the socket file rather than throwing.
+- **No code path writes UEFI variables.** Firmware refuses it under Secure Boot anyway; offering it would risk an
+  unbootable board for no gain (§4.6).
 - Autostart does not enable Apply until the user has checked it once (same Windows default).
 - Log PWM writes at debug, not every tick at info (spam).
+- Never commit firmware images, extracted BIOS/IFR blobs or NVRAM variable dumps — they are vendor-copyrighted and
+  machine-specific. The research tree that produced the CBS offsets is deliberately outside this repo.
 
 ---
 
@@ -293,7 +371,7 @@ Do not fight silently.
 1. `sensors` lists chips; OpenFan Plugins matches.
 2. Apply off: PWM enable stays auto.
 3. Flat 40% on a case fan: `cat pwmN` tracks; RPM moves.
-4. Exit: `pwmN_enable` back to 2 (or documented fallback).
+4. Exit: `pwmN_enable` back to the cached pre-takeover value (`5` on this board; `2` only as a last-resort fallback).
 5. GPU: two PRO 6000s distinguishable by PCI bus; independent fans; 30% floor.
 6. Sleep/resume: fans return to curve without restarting the app.
 7. CoolerControl running: warn, stay monitor-only until Take over.
@@ -313,7 +391,7 @@ On the intended Ubuntu machine:
 - [x] Can a non-root user write `pwm1` after a one-off `chmod`? — solved via udev ACL group `openfan` (99-openfan-pwm.rules)
 - [x] NVML spike done — writes via root helper service (socket /run/openfan/helper.sock), reads in-process; RPM tach NOT supported by driver 595
 - [x] k10temp: which temp labels exist (Tctl, CCD?)
-- [x] NCT6701D: present or not
+- [x] NCT6701D: present or not — answered: board is **NCT6796D-S** via `nct6775`, chip `nct6799`, 7 PWMs
 
 **Exit criteria:** a short `spike-notes.md` with yes/no for board PWM and GPU NVML. If board PWM is no, v1 is **GPU-only + read-only board temps**.
 
@@ -348,18 +426,18 @@ On the intended Ubuntu machine:
 - [x] Dark window, Home cards — nav rail + page header + orange/slate palette matched to screenshots/ 2026-09-22;
 cards assign **library curves by name** (Monitor | curve…) — one curve shared across fans, graph binds its own sensor
 - [x] Apply checkbox, tray, single-instance, Exit restore — user-verified on target 2026-09-21
-- [ ] Graph editor ✓ (canvas add/drag, sensor, hysteresis, max-speed), calibrate ✓ 2026-09-22 (Manual Fan Calibration window; GPUs excluded — no tach), hide, drag-reorder pending
-- [ ] Settings, Theme accent, About (versions + Check for OpenFan updates via GitHub)
+- [x] Graph editor ✓ (canvas add/drag, sensor, hysteresis, max-speed), calibrate ✓ 2026-09-22 (Manual Fan Calibration window; GPUs excluded — no tach), hide ✓ · reorder shipped as ⋮ ▸ Move up/down instead of drag
+- [x] Settings, Theme accent, About (versions + Check for OpenFan updates via GitHub) *(About lists hwmon + NVML versions; the GitHub "check for updates" call is **not** implemented)*
 
 **Checkpoint:** daily-driver usable on GPU fans; board fans if Phase 0 allowed.
 
 ### Phase 5 — GPUs page + polish
 
-- [ ] Telemetry + power limit (no Windows driver modes)
-- [ ] Sleep/resume
-- [ ] Conflict detector
-- [ ] Autostart
-- [ ] README, man-ish `--help`, this spec marked Implemented
+- [x] Telemetry + power limit (no Windows driver modes)
+- [x] Sleep/resume
+- [x] Conflict detector
+- [x] Autostart
+- [x] README, man-ish `--help`, this spec marked Implemented *(README + CLI `Usage` exist; CPU power documented in §4.6 and `tools/hsmp-control/`)*
 
 ### Phase 6 (later)
 
@@ -395,15 +473,15 @@ cards assign **library curves by name** (Monitor | curve…) — one curve share
 - [x] Task 3.2: PCI names + floor + merge — live checkpoint PASSED under sudo: fan0→55% ramp, fan1 held 30%, default restored
 
 ### Phase 4
-- [ ] Task 4.1: Avalonia app shell + tray + apply
-- [ ] Task 4.2: Control + curve cards
+- [x] Task 4.1: Avalonia app shell + tray + apply
+- [x] Task 4.2: Control + curve cards
 - [x] Task 4.3: Graph editor ✓ 2026-09-21 + Manual Fan Calibration ✓ 2026-09-22 (slider handover, auto sweep, avoid zones, validation)
-- [ ] Task 4.4: Settings / Theme / About
+- [x] Task 4.4: Settings / Theme / About
 
 ### Phase 5
-- [ ] Task 5.1: GPUs page
-- [ ] Task 5.2: login1 sleep, conflicts, autostart
-- [ ] Task 5.3: Docs
+- [x] Task 5.1: GPUs page
+- [x] Task 5.2: login1 sleep, conflicts, autostart
+- [x] Task 5.3: Docs
 
 ---
 
@@ -411,7 +489,7 @@ cards assign **library curves by name** (Monitor | curve…) — one curve share
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| NCT6701D has no Linux PWM | High on TRX50 | Phase 0 spike; GPU-only v1 if needed |
+| ~~NCT6701D has no Linux PWM~~ **retired** — NCT6796D-S binds via `nct6775` (`nct6799`, 7 PWMs) | was High on TRX50 | verified working in Phase 0/2 |
 | Kernel k10temp lacks Turin CCDs | Med | Use Tctl; document kernel version |
 | NVML SetFan unsupported on Linux driver | High for PRO 6000s | Spike; monitor-only + message |
 | udev ACL not applied until replug | Med | Document log out/in; `udevadm trigger` |

@@ -21,6 +21,11 @@ sudo udevadm trigger --subsystem-match=hwmon --action=change
 
 **Log out and back in** so the new group membership applies (`id` should list `openfan`).
 
+## Environment overrides
+
+`OPENFAN_HELPER_SOCKET` relocates the socket for **both** ends — the daemon and `NvmlHelperClient` — so tests (and
+parallel instances) can use a private socket instead of `/run/openfan/helper.sock`.
+
 ## Verify (as your normal user, after relogin)
 
 ```sh
@@ -49,7 +54,9 @@ The Linux NVIDIA driver gates NVML fan **writes** on root euid (reads are free),
 HSMP socket power limit. `openfan-helper` runs as a small root systemd service and exposes exactly
 two capabilities for members of the `openfan` group: setting/restoring NVIDIA fans, and setting the
 CPU socket power limit (PPT). hwmon PWM does **not** go through it (udev ACL covers that). The GUI
-never needs root. It starts even with no NVIDIA driver present, as long as `amd_hsmp_hwmon` exists.
+never needs root. It starts even with no NVIDIA driver present, as long as `amd_hsmp_hwmon` exists — and if
+**neither** NVML nor `amd_hsmp_hwmon` is available it exits with status 2 ("helper has no job") rather than serving a
+socket that can do nothing.
 
 ## Install (after building the repo)
 
@@ -86,13 +93,48 @@ helper automatically (the status line stops complaining about the helper).
   success.
 - `cpuboot` writes exactly one file, `/etc/hsmp-control/ppt_mw` (or `$HSMP_LIMIT_CONFIG`), as an
   integer in milliwatts via temp-file + rename; `clear` removes it. That file is what
-  `hsmp-control-apply.service` re-asserts at boot — see `tr9970x-hsmp/packaging/`. Without that
-  unit, a CPU limit set here is live until reboot only, because the HSMP setting is volatile and
-  firmware re-programs it from BIOS CBS at every boot.
+  `hsmp-control-apply.service` re-asserts at boot — the unit, the CLI it runs and a verifying
+  installer all live in this repo under [`tools/hsmp-control/`](../tools/hsmp-control/README.md):
+
+  ```sh
+  # Applies the limit IMMEDIATELY as well as at every later boot — pass your current value
+  # (`./tools/hsmp-control/hsmp-control limits`) if you want persistence without changing today's behaviour.
+  sudo tools/hsmp-control/packaging/install-persistence.sh 285   # installs + enables + verifies
+  ```
+
+  Without that unit, a CPU limit set here is live until reboot only, because the HSMP setting is
+  volatile and firmware re-programs it from BIOS CBS at every boot. The app detects whether the unit
+  is installed: if it is missing, *keep after reboot* reports an amber warning rather than claiming
+  persistence that cannot happen.
 - **Restore-on-disconnect:** each connection owns the fans it sets; if the GUI crashes or is
   killed, the helper restores those fans to driver default immediately. Power limits are
   intentionally *not* restored — neither GPU nor CPU — matching how the driver treats them.
-- Helper restart / SIGTERM also drains sessions with restore.
+- Helper restart / SIGTERM drains sessions with restore. Cancellation of an in-flight read while a
+  client is connected is treated as normal shutdown, not a fault (see `ServeClientAsync`), so
+  `systemctl stop openfan-helper` with the GUI open completes and removes the socket file.
+
+## After changing the helper's code — reinstall it
+
+The running daemon is a **published binary**, not the repo tree. Editing `HelperProtocol.cs`,
+`CpuPowerControl.cs` or anything else in `OpenFan.Linux.Hw` changes the app's expectations but not
+the installed daemon, and the failure mode is confusing: the GUI reports `err unknown command` for
+commands the source clearly implements. This actually happened during development — a new CPU power
+command was refused because the daemon predated it. Re-run the install block above and restart:
+
+```sh
+sudo systemctl restart openfan-helper
+# confirm the daemon knows the commands, without changing any limit (out-of-window value is refused):
+python3 - <<'PY'
+import socket
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); s.connect("/run/openfan/helper.sock")
+f = s.makefile("rw", buffering=1)
+f.write("cpupower 999\n"); print(f.readline().strip())   # expect: err watts must be 100-300
+f.write("quit\n"); f.readline()
+PY
+```
+
+`openfan-helper` logs its capabilities at startup (`journalctl -u openfan-helper -n 3`), including
+whether CPU power control is available.
 
 ## Uninstall
 
@@ -100,4 +142,7 @@ helper automatically (the status line stops complaining about the helper).
 sudo systemctl disable --now openfan-helper
 sudo rm /etc/systemd/system/openfan-helper.service /usr/local/lib/openfan/openfan-helper
 sudo systemctl daemon-reload
+
+# and, if CPU boot persistence was installed:
+sudo tools/hsmp-control/packaging/install-persistence.sh --remove
 ```
