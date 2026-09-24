@@ -233,13 +233,20 @@ subgroups · `e00092d` PageUp/Down scroll · `7c4808d` Sensors page + aliases ·
 
 ## 7. Pending / next
 
+**Verified on hardware (reboot tests performed by the user):**
+- **Unticked across reboot** → firmware's own value returns. Confirmed again this boot: unit skipped
+  (`ConditionPathExists`), flash 295 W, and a later manual Apply of 270 W is visible as live ≠ flash exactly as designed.
+- **Ticked across reboot** → the configured limit survives while BIOS still reports 295 W, which is the point: persistence
+  is re-application by the boot unit, not a firmware write.
+  Caveat for whoever picks this up: that test leaves no trace on disk — a later unticked Apply deletes
+  `/etc/hsmp-control/ppt_mw` — so it must be re-run rather than audited after the fact. Recipe: set a non-295 value with
+  the box ticked, reboot, then `./tools/hsmp-control/hsmp-control limits --json` should show live == configured while
+  `ppt_bios_mw` stays 295000, and `journalctl -b -u hsmp-control-apply.service` should show it ran instead of skipping.
+
 **Verification still open (say so honestly if asked what is proven):**
-1. **Reboot with the boot override present.** Unticked-across-reboot is user-verified (firmware's 295 W came back).
-   Ticked-across-reboot at a value differing from BIOS has not been observed end to end — the mechanism is verified
-   (`systemctl` apply sets live == configured) but not across a cold boot.
-2. **Sub-200 W behaviour** on this board: window allows 100 W; nobody has confirmed the SMU accepts it (readback
-   would report a clamp, so worst case is visible, not silent).
-3. Optional: *reset to BIOS default* button on the CPU tab — `cpupower default` exists in the protocol and is tested;
+1. **Sub-200 W behaviour** on this board: the window allows 100 W but nobody has confirmed the SMU accepts it; readback
+   would report a clamp, so the worst case is visible rather than silent.
+2. Optional: *reset to BIOS default* button on the CPU tab — `cpupower default` exists in the protocol and is tested;
    only the UI control is missing.
 
 **Feature/packaging backlog:**
