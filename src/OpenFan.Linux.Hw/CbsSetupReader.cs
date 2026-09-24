@@ -20,7 +20,8 @@ namespace OpenFan.Linux.Hw;
 ///
 /// Offsets are byte offsets into the variable DATA; an efivarfs file prefixes that data with a
 /// 4-byte attribute word. They come from the BIOS Setting Mapping Table JSON embedded in BIOS
-/// 0617 and were verified against the live variable (see tr9970x-hsmp/FINDINGS-CBS-VARSTORE.md).
+/// 0617 and were verified against the live variable; they are listed with provenance in
+/// tools/hsmp-control/README.md.
 /// A different board or BIOS needs re-verification, not just a new path.
 /// </remarks>
 public sealed class CbsSetupReader(string? varPath = null)

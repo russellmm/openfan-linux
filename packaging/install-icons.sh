@@ -7,7 +7,10 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 MASTER="$REPO/src/OpenFan.Linux.App/Assets/openfan.png"
 ICO="$REPO/src/OpenFan.Linux.App/Assets/OpenFan.ico"
-EXEC_PATH="${1:-$REPO/src/OpenFan.Linux.App/bin/Debug/net8.0/openfan}"
+# Pass the Exec target explicitly when a stable launcher exists (see install-launcher.sh);
+# without one, prefer ~/.local/bin/openfan if present so re-running this never downgrades the
+# menu entry to a build-specific path.
+EXEC_PATH="${1:-$( [ -x "$HOME/.local/bin/openfan" ] && echo "$HOME/.local/bin/openfan" || echo "$REPO/src/OpenFan.Linux.App/bin/Debug/net8.0/openfan" )}"
 
 [ -f "$MASTER" ] || { echo "missing master icon: $MASTER" >&2; exit 1; }
 
@@ -30,12 +33,13 @@ cat > "$HOME/.local/share/applications/openfan.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=OpenFan
-Comment=hwmon + NVML fan control
+Comment=Fan control and sensor monitoring (Threadripper PPT, GPU fans)
 Exec=$EXEC_PATH
 Terminal=false
 Icon=openfan
 StartupWMClass=openfan
-Categories=System;HardwareSettings;
+Categories=System;Monitor;
+Keywords=fan;cooling;thermal;ppt;tjmax;cpu;gpu;
 EOF
 
 # Autostart entry (if present) may predate the Icon field — refresh it in place.

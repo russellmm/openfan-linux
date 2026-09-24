@@ -236,6 +236,7 @@ static int Usage(bool ok)
 
           --dump [--sysfs PATH]                      list PWM + GPU controls, temps, tachs
           --cpu-power                                read socket power and cap as JSON (never writes)
+          --procs                                    list processes using each GPU
           --apply-once ID PERCENT [--seconds N]      hold one fan at PERCENT (default 10 s), then restore
 
         Examples:

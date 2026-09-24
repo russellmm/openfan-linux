@@ -9,7 +9,8 @@ namespace OpenFan.Linux.Hw;
 /// <remarks>
 /// HSMP limits are volatile SMU state, so "persistence" on this platform means re-applying at
 /// every boot rather than making a write stick. The single source of truth for that intent is
-/// this small config file, written by an administrator (or a future OpenFan UI action) and read
+/// this small config file — written by the app's *keep after reboot* checkbox (via
+/// <see cref="CpuPowerControl.SetBootLimitWatts"/>) or by an administrator running install-persistence.sh — and read
 /// by both the root boot helper and here, so the GUI can show desired vs live vs BIOS default.
 /// No range policy lives here on purpose: the helper owns the accepted window, and duplicating
 /// it in two languages would let them drift. A value the helper rejects simply shows up as

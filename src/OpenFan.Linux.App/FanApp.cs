@@ -72,9 +72,9 @@ public sealed class FanApp : IDisposable
         foreach (var (uuid, watts) in Settings.GpuPowerLimitsW.ToList())
             SetGpuPowerLimit(uuid, watts); // best effort; failures surface as GpuPowerError
 
-        // CPU PPT is volatile SMU state, so a saved limit has to be re-asserted every boot. When
-        // hsmp-control-apply.service is installed it usually already did this; doing it here too
-        // keeps the value correct on machines that only run the app, and makes desired==live true.
+        // CPU PPT is volatile SMU state: nothing restores it at boot except something that re-applies
+        // it. Whether this app may do so is decided solely by CpuLimitShouldReassertOnStart — see the
+        // gate below; an unsolicited re-apply would defeat the user's "keep after reboot" choice.
         if (Settings is { CpuLimitShouldReassertOnStart: true, CpuPowerLimitW: { } cpuW })
         {
             // Only when the user asked for persistence. Re-asserting an unsolicited saved limit made

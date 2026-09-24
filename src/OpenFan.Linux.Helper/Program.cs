@@ -23,8 +23,8 @@ if (!nvml.Available && !cpuAvailable)
     return 2;
 }
 
+// OPENFAN_HELPER_SOCKET also overrides the client side (NvmlHelperClient), so tests can use a private socket.
 var socketPath = Environment.GetEnvironmentVariable("OPENFAN_HELPER_SOCKET") ?? "/run/openfan/helper.sock";
-var verbose = Environment.GetEnvironmentVariable("OPENFAN_HELPER_VERBOSE") == "1";
 
 var server = new HelperServer(nvml, socketPath, nvml, cpu);
 server.Start();
