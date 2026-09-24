@@ -8,7 +8,19 @@ GPU fans + power limits via **NVML**, with a curve library (Flat / Graph / Mix) 
 Built with Avalonia 11 / .NET 8, FluentTheme dark. Currently developed and daily-driven on Ubuntu 26.04 +
 Threadripper 9970X + RTX 5060 Ti / 2× RTX PRO 6000 Blackwell (driver 595.x).
 
+## Requirements
+
+- **lm-sensors** (recommended): `sudo apt install lm-sensors && sudo sensors-detect` — loads the board's
+  hwmon drivers (nct6772, asucec, …). OpenFan reads sysfs directly like lm-sensors does; the package itself
+  is the convenient way to get the kernel modules configured.
+- **CPU page**: package power + PPT cap come from the `amd_hsmp` kernel module (automatic on TRX50 /
+  Threadripper PRO); temperature, load and frequency work from plain hwmon/cpufreq even without it.
+- NVIDIA GPU features need the proprietary driver with NVML (`nvidia-smi` working).
+
 ## Features
+
+- **CPU page** — live package temp, power draw (PPT), PPT limit, load % and boost frequency for the whole
+  socket, sourced from `amd_hsmp`, board hwmon, `/proc/stat` and cpufreq.
 
 - **Home** — every PWM control as a card: click-to-rename, curve assignment dropdown, live duty %, tach RPM,
   per-fan manual calibration window (auto-step sweep with avoid-band support).

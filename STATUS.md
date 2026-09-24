@@ -137,6 +137,8 @@ validation trio gating Ok, get-or-create Cfg() rows.
 power limits via helper · `3b808a7` STATUS rewrite · `b36f825` calibration crash fix · `f62c927` calibration window.
 
 ## 7. Pending / next
+
+- **CPU page** (nav ▸ CPU / Ctrl+2): package Temp, Power (PPT), PPT limit, Load %, Frequency — live per refresh tick; power/cap from amd_hsmp hwmon, temp from board hwmon (Tctl/Tdie/CPU Package), load from /proc/stat deltas, freq = max cpufreq across cores. Degrades to '—' per missing source.
 1. `.deb` packaging (dpkg-deb script); polkit alternative to the helper service. Manual chain in packaging/README.md.
 2. Helper protocol tests exist for `power`; consider integration test for SnapshotAll against live NVML (skip on CI).
 3. Nice-to-haves: calibration-estimated RPM while applying; recent-setups submenu; collapsed-state persistence for
