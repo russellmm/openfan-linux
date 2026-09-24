@@ -39,6 +39,17 @@ public sealed class NvmlHelperClient(string? socketPath = null) : IFanActuator, 
     /// <summary>GPU power limit (persisted by the driver; not restored on disconnect — that is intended).</summary>
     public bool TrySetPowerLimit(string uuid, int watts) => Transact($"power {uuid} {watts}");
 
+    /// <summary>CPU socket power limit (PPT) in watts. Volatile SMU state: firmware re-programs it
+    /// from BIOS at the next boot unless <see cref="TrySetCpuBootLimit"/> keeps the override.</summary>
+    public bool TrySetCpuPowerLimit(int watts) => Transact($"cpupower {watts}");
+
+    /// <summary>Return the CPU limit to the value BIOS holds in flash.</summary>
+    public bool TryRestoreCpuDefault() => Transact("cpupower default");
+
+    /// <summary>Keep the CPU limit across reboots (writes the file hsmp-control-apply.service
+    /// re-asserts), or stop keeping it with null.</summary>
+    public bool TrySetCpuBootLimit(int? watts) => Transact(watts is null ? "cpuboot clear" : $"cpuboot {watts}");
+
     private bool Transact(string command)
     {
         lock (_gate)

@@ -20,11 +20,27 @@ if (command == "--cpu-power")
         Console.Error.WriteLine("amd_hsmp_hwmon CPU socket power telemetry unavailable.");
         return 2;
     }
+    // BIOS-side limits are read in-process, unprivileged: the CBS variable is world-readable.
+    // socketPowerCapW is the live (volatile) HSMP limit; pptBiosMw is what firmware programs at
+    // boot, so they differ whenever something has SET the limit since this boot started.
+    var cbs = new CbsSetupReader().Read();
+    var desiredMw = new HsmpLimitConfig().ReadDesiredMw();
+    var bootWired = new CpuPowerControl().BootPersistenceWired();
     Console.WriteLine(JsonSerializer.Serialize(new
     {
         source = reading.Source,
         socketPowerW = reading.PowerW,
         socketPowerCapW = reading.PptCapW,
+        pptDesiredMw = desiredMw,
+        bootPersistenceInstalled = bootWired,
+        tdpMw = cbs.TdpMw,
+        pptBiosMw = cbs.PptBiosMw,
+        tjmaxC = cbs.TjMaxCelsius,
+        tdpControl = cbs.TdpControl,
+        pptBiosControl = cbs.PptControl,
+        tjmaxControl = cbs.TjMaxControl,
+        cbsOk = cbs.Ok,
+        cbsReason = cbs.Reason,
     }));
     return 0;
 }

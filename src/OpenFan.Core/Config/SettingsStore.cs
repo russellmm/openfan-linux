@@ -16,6 +16,22 @@ public sealed class AppSettings
     /// <summary>GPU power limits in watts keyed by NVML uuid; re-applied at startup via helper.</summary>
     public Dictionary<string, int> GpuPowerLimitsW { get; set; } = [];
 
+    /// <summary>CPU socket power limit (PPT) in watts; null = leave whatever firmware programmed.
+    /// Re-applied at startup through the helper — the live HSMP value is volatile by design.</summary>
+    public int? CpuPowerLimitW { get; set; }
+
+    /// <summary>Single switch for CPU limit persistence. When true the limit is written to
+    /// /etc/hsmp-control/ppt_mw so hsmp-control-apply.service re-asserts it early at boot, and this
+    /// app re-asserts it on start as well. When false NOTHING may re-apply it after a boot — the
+    /// firmware-programmed value stands, which is what "returns on next boot" promises the user.</summary>
+    public bool CpuKeepAfterReboot { get; set; }
+
+    /// <summary>Whether opening the app should overwrite whatever limit firmware programmed.
+    /// Re-applying a saved limit while this is false silently defeats the checkbox: the limit would
+    /// appear to survive reboot even though the user asked for it not to.</summary>
+    [JsonIgnore]   // derived from the two settings above; persisting it would only invite drift
+    public bool CpuLimitShouldReassertOnStart => CpuPowerLimitW is not null && CpuKeepAfterReboot;
+
     // Window geometry (Linux app): restored on launch, saved when the window moves/resizes/closes.
     public int? WindowX { get; set; }
     public int? WindowY { get; set; }

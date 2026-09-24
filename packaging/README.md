@@ -43,12 +43,13 @@ openfan-linux --apply-once hwmon:nct6799:10:pwm:4 40 --seconds 15
 
 ---
 
-# openfan-helper — privileged GPU fan daemon (one-time setup)
+# openfan-helper — privileged GPU fan + CPU socket power daemon (one-time setup)
 
-The Linux NVIDIA driver gates NVML fan **writes** on root euid (reads are free).
-`openfan-helper` runs as a small root systemd service and exposes exactly one
-capability: setting/restoring NVIDIA fans, for members of the `openfan` group.
-hwmon PWM does **not** go through it (udev ACL covers that).
+The Linux NVIDIA driver gates NVML fan **writes** on root euid (reads are free), and so does the
+HSMP socket power limit. `openfan-helper` runs as a small root systemd service and exposes exactly
+two capabilities for members of the `openfan` group: setting/restoring NVIDIA fans, and setting the
+CPU socket power limit (PPT). hwmon PWM does **not** go through it (udev ACL covers that). The GUI
+never needs root. It starts even with no NVIDIA driver present, as long as `amd_hsmp_hwmon` exists.
 
 ## Install (after building the repo)
 
@@ -71,16 +72,26 @@ ls -l /run/openfan/helper.sock        # srw-rw---- 1 root openfan
 python3 -c "print('socket visible:', __import__('os').path.exists('/run/openfan/helper.sock'))"
 ```
 
-Then start the OpenFan GUI — GPU cards route through the helper automatically
-(the status line stops complaining about the helper).
+Then start the OpenFan GUI — GPU cards and the CPU tab's power-limit control route through the
+helper automatically (the status line stops complaining about the helper).
 
 ## Safety model
 
 - Socket `/run/openfan/helper.sock` is `0660 root:openfan` → only group members can talk to it.
-- Protocol accepts **only** `nvml:<uuid>:fan:<n>` ids with percent 0–100; nothing else —
-  no shell, no file paths, no power limits (yet).
+- Protocol accepts **only** `nvml:<uuid>:fan:<n>` ids with percent 0–100, `power <gpu-uuid> <W>`,
+  and the CPU pair `cpupower <W>|default` / `cpuboot <W>|clear`. Nothing else — no shell, no
+  arbitrary paths. CPU watts are validated to 100–300 W twice (in the protocol parser and again in
+  `CpuPowerControl`, which also refuses anything above `power1_cap_max`) and every live write is
+  verified by reading the attribute back, so a firmware clamp is reported instead of displayed as
+  success.
+- `cpuboot` writes exactly one file, `/etc/hsmp-control/ppt_mw` (or `$HSMP_LIMIT_CONFIG`), as an
+  integer in milliwatts via temp-file + rename; `clear` removes it. That file is what
+  `hsmp-control-apply.service` re-asserts at boot — see `tr9970x-hsmp/packaging/`. Without that
+  unit, a CPU limit set here is live until reboot only, because the HSMP setting is volatile and
+  firmware re-programs it from BIOS CBS at every boot.
 - **Restore-on-disconnect:** each connection owns the fans it sets; if the GUI crashes or is
-  killed, the helper restores those fans to driver default immediately.
+  killed, the helper restores those fans to driver default immediately. Power limits are
+  intentionally *not* restored — neither GPU nor CPU — matching how the driver treats them.
 - Helper restart / SIGTERM also drains sessions with restore.
 
 ## Uninstall

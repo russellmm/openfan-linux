@@ -10,10 +10,13 @@ namespace OpenFan.Linux.Hw;
 /// newline commands over a Unix socket whose file permissions restrict access to the
 /// 'openfan' group; only NVML fan ids are accepted — hwmon goes through the udev ACL.
 ///
-///   ping                 -> ok
+///   ping                    -> ok
 ///   set &lt;nvml-id&gt; &lt;pct&gt;  -> ok | err &lt;reason&gt;
-///   default &lt;nvml-id&gt;    -> ok | err &lt;reason&gt;
-///   quit                 -> bye
+///   default &lt;nvml-id&gt;     -> ok | err &lt;reason&gt;
+///   power &lt;gpu-uuid&gt; &lt;W&gt;  -> ok | err &lt;reason&gt;
+///   cpupower &lt;W&gt;|default   -> ok | err &lt;reason&gt;   (live PPT, 100-300 W, verified by readback)
+///   cpuboot &lt;W&gt;|clear      -> ok | err &lt;reason&gt;   (keep-after-reboot override)
+///   quit                    -> bye
 ///
 /// Each connection owns what it set: on disconnect (clean or SIGKILL'd GUI) the
 /// session restores those fans to NVML default so nothing stays pinned.
@@ -24,7 +27,20 @@ public interface IGpuPowerWriter
     bool SetPowerLimit(string uuid, int watts);
 }
 
-public sealed class HelperSession(IFanActuator actuator, IGpuPowerWriter? power = null)
+/// <summary>
+/// Optional capability: CPU socket power limit (PPT). Implemented by
+/// <see cref="CpuPowerControl"/>. Live limits are volatile SMU state; the boot limit is the file
+/// hsmp-control-apply.service re-asserts, kept separate so "keep after reboot" is explicit.
+/// </summary>
+public interface ICpuPowerWriter
+{
+    bool SetLiveLimitWatts(int watts);
+    bool RestoreBiosDefault();
+    bool SetBootLimitWatts(int? watts);
+    string? LastError { get; }
+}
+
+public sealed class HelperSession(IFanActuator actuator, IGpuPowerWriter? power = null, ICpuPowerWriter? cpu = null)
 {
     private static readonly Regex NvmlFanId = new(
         @"^nvml:[A-Za-z0-9._-]+:fan:[0-9]+$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -75,6 +91,29 @@ public sealed class HelperSession(IFanActuator actuator, IGpuPowerWriter? power 
                     return "err watts must be 1-2000";
                 return power.SetPowerLimit(parts[1], watts) ? "ok" : "err power limit rejected";
 
+            // CPU socket power limit (PPT). Volatile SMU state: firmware re-programs it from
+            // BIOS CBS at the next boot unless cpuboot keeps the override. TDP/TjMax are absent
+            // on purpose — this firmware refuses OS writes to those while Secure Boot is enabled.
+            case "cpupower" when parts.Length == 2:
+                if (cpu is null)
+                    return "err cpu power control not available";
+                if (parts[1].Equals("default", StringComparison.OrdinalIgnoreCase))
+                    return cpu.RestoreBiosDefault() ? "ok" : $"err {cpu.LastError ?? "restore failed"}";
+                if (!int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var cpuW)
+                    || cpuW < CpuPowerControl.MinWatts || cpuW > CpuPowerControl.MaxWatts)
+                    return $"err watts must be {CpuPowerControl.MinWatts}-{CpuPowerControl.MaxWatts}";
+                return cpu.SetLiveLimitWatts(cpuW) ? "ok" : $"err {cpu.LastError ?? "power limit rejected"}";
+
+            case "cpuboot" when parts.Length == 2:
+                if (cpu is null)
+                    return "err cpu power control not available";
+                if (parts[1].Equals("clear", StringComparison.OrdinalIgnoreCase))
+                    return cpu.SetBootLimitWatts(null) ? "ok" : $"err {cpu.LastError ?? "could not clear boot limit"}";
+                if (!int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var bootW)
+                    || bootW < CpuPowerControl.MinWatts || bootW > CpuPowerControl.MaxWatts)
+                    return $"err watts must be {CpuPowerControl.MinWatts}-{CpuPowerControl.MaxWatts}";
+                return cpu.SetBootLimitWatts(bootW) ? "ok" : $"err {cpu.LastError ?? "could not write boot limit"}";
+
             case "quit":
                 return "bye";
 
@@ -96,7 +135,8 @@ public sealed class HelperSession(IFanActuator actuator, IGpuPowerWriter? power 
 /// Unix-socket accept loop hosting HelperSession instances. Lives in the library so
 /// tests run it against a fake actuator; openfan-helper is a thin root wrapper.
 /// </summary>
-public sealed class HelperServer(IFanActuator actuator, string socketPath, IGpuPowerWriter? power = null) : IAsyncDisposable
+public sealed class HelperServer(IFanActuator actuator, string socketPath, IGpuPowerWriter? power = null,
+    ICpuPowerWriter? cpu = null) : IAsyncDisposable
 {
     private readonly Socket _listener = new(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
     private readonly CancellationTokenSource _cts = new();
@@ -169,7 +209,7 @@ public sealed class HelperServer(IFanActuator actuator, string socketPath, IGpuP
 
     private async Task ServeClientAsync(Socket client)
     {
-        var session = new HelperSession(actuator, power);
+        var session = new HelperSession(actuator, power, cpu);
         try
         {
             using (client)
@@ -194,6 +234,13 @@ public sealed class HelperServer(IFanActuator actuator, string socketPath, IGpuP
         {
             // abrupt disconnect — restore below
         }
+        catch (OperationCanceledException)
+        {
+            // Server shutting down while this client was still connected: the pending
+            // ReadLineAsync cancels. That is normal shutdown (systemctl stop with the GUI open),
+            // not a fault — leaving it to escape would throw out of DisposeAsync and skip socket
+            // cleanup. Fans are still restored below.
+        }
         finally
         {
             session.RestoreOwned();
@@ -213,8 +260,18 @@ public sealed class HelperServer(IFanActuator actuator, string socketPath, IGpuP
             // already closed
         }
 
-        await Task.WhenAll(_sessions.ToArray());
-        TryDeleteSocket();
+        try
+        {
+            await Task.WhenAll(_sessions.ToArray());
+        }
+        catch (OperationCanceledException)
+        {
+            // Sessions ending because we cancelled — expected during shutdown.
+        }
+        finally
+        {
+            TryDeleteSocket();   // teardown must complete even if a session faulted
+        }
     }
 
     public void TryDeleteSocket()

@@ -13,20 +13,26 @@ if (Native.geteuid() != 0)
 }
 
 var nvml = new NvmlBackend();
-if (!nvml.Available)
+// CPU socket power control works without any NVIDIA driver, so NVML absence alone is not a
+// reason to refuse to start — but with neither capability there is nothing to serve.
+var cpu = new CpuPowerControl();
+var cpuAvailable = HsmpPowerReader.FindHsmpChipDirectory("/sys/class/hwmon") is not null;
+if (!nvml.Available && !cpuAvailable)
 {
-    Console.Error.WriteLine("NVML unavailable — is the NVIDIA driver loaded? Helper has no job; exiting.");
+    Console.Error.WriteLine("NVML unavailable and no amd_hsmp_hwmon chip — helper has no job; exiting.");
     return 2;
 }
 
 var socketPath = Environment.GetEnvironmentVariable("OPENFAN_HELPER_SOCKET") ?? "/run/openfan/helper.sock";
 var verbose = Environment.GetEnvironmentVariable("OPENFAN_HELPER_VERBOSE") == "1";
 
-var server = new HelperServer(nvml, socketPath, nvml);
+var server = new HelperServer(nvml, socketPath, nvml, cpu);
 server.Start();
 server.ApplyGroupAccess("openfan");
 
-Console.WriteLine($"openfan-helper listening on {socketPath} (NVML driver {nvml.DriverVersion})");
+Console.WriteLine($"openfan-helper listening on {socketPath}" +
+                  $" (NVML {(nvml.Available ? $"driver {nvml.DriverVersion}" : "unavailable")}," +
+                  $" CPU PPT {(cpuAvailable ? "available" : "unavailable")})");
 
 var stopping = new ManualResetEventSlim();
 using var sigTerm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, ctx =>

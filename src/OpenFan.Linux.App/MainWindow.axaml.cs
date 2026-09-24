@@ -202,12 +202,28 @@ public sealed partial class MainWindow : Window
             };
         }
 
+        // BIOS flash limits do not change while the app runs, so read once and show them prominently.
+        var cbs = _app.CbsLimits;
+
         var tempV = Stat("Temp", out var temp);
         var powerV = Stat("Socket power", out var power);
-        var capV = Stat("Socket cap", out var cap);
+        var capV = Stat("PPT", out var cap);
+        var tdpV = Stat("TDP", out var tdp);
+        var tjmaxV = Stat("TjMax", out var tjmax);
         var loadV = Stat("Load", out var load);
         var freqV = Stat("Frequency", out var freq);
         var ramV = Stat("RAM used", out var ramPct);
+
+        // Short values: keep them narrow so eight stats still fit one row at typical window widths.
+        tdpV.MinWidth = tjmaxV.MinWidth = 92;
+        tdp.Text = cbs.Ok ? Mw(cbs.TdpMw) : "—";
+        tjmax.Text = cbs.Ok && cbs.TjMaxCelsius is int tjStatic ? $"{tjStatic} °C" : "—";
+        ToolTip.SetTip(tdpV, cbs.Ok
+            ? "Set-point from BIOS flash (CBS), read-only: this firmware refuses OS writes while Secure Boot is on"
+            : $"Unavailable — {cbs.Reason}");
+        ToolTip.SetTip(tjmaxV, cbs.Ok
+            ? "Throttle junction temperature from BIOS flash (CBS), read-only"
+            : $"Unavailable — {cbs.Reason}");
 
         var barBg = new SolidColorBrush(Color.Parse("#2C363D"));
         var loadBar = new ProgressBar { Minimum = 0, Maximum = 100, Height = 8, CornerRadius = new CornerRadius(4), Foreground = Accent, Background = barBg };
@@ -216,6 +232,80 @@ public sealed partial class MainWindow : Window
         var powerText = new TextBlock { Foreground = ValueText, FontSize = 13 };
         var ramBar = new ProgressBar { Minimum = 0, Maximum = 100, Height = 8, CornerRadius = new CornerRadius(4), Foreground = new SolidColorBrush(Color.Parse("#B388FF")), Background = barBg };
         var ramText = new TextBlock { Foreground = ValueText, FontSize = 13 };
+
+        // PPT control — same interaction as the GPU watts box. Writes route through openfan-helper,
+        // so this app never needs root. TDP and TjMax are display-only: they exist solely in the
+        // BIOS variable, which this firmware refuses to let the OS write while Secure Boot is on.
+        var (pptMin, pptMax) = FanApp.CpuLimitWindowWatts;
+        var cpuNow = _cpu.Read();
+        var pptBox = new NumericUpDown
+        {
+            Width = 110,
+            Minimum = pptMin,
+            Maximum = pptMax,
+            // Prefer what the user configured; otherwise show the live cap, clamped into range so
+            // a stock default above the window still opens the page.
+            Value = Math.Clamp((decimal)(_app.Settings.CpuPowerLimitW ?? (int?)Math.Round(cpuNow.PptCapW ?? pptMin)), pptMin, pptMax),
+            FormatString = "0",
+            Increment = 5,
+        };
+        var keepBoot = new CheckBox
+        {
+            Content = "keep after reboot",
+            IsChecked = _app.Settings.CpuKeepAfterReboot,
+            Foreground = Secondary,
+            FontSize = 12,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var applyPpt = new Button { Content = "Apply", Height = 32 };
+        var pptNote = new TextBlock { Foreground = Secondary, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+        applyPpt.Click += (_, _) =>
+        {
+            var watts = (int)Math.Round(pptBox.Value ?? 0);
+            if (_app.SetCpuPowerLimit(watts, keepBoot.IsChecked == true))
+            {
+                // Amber, not green, when the boot override has nothing to execute it.
+                pptNote.Text = _app.CpuPowerWarning
+                    ?? (keepBoot.IsChecked == true
+                        ? $"applied {watts} W; re-applied at every boot"
+                        : $"applied {watts} W; firmware default returns on next boot");
+                pptNote.Foreground = new SolidColorBrush(Color.Parse(
+                    _app.CpuPowerWarning is null ? "#7BC97B" : "#E5C07B"));
+            }
+            else
+            {
+                pptNote.Text = _app.CpuPowerError ?? "failed";
+                pptNote.Foreground = new SolidColorBrush(Color.Parse("#EF6B6B"));
+            }
+        };
+
+        static string Mw(int? milliwatts) => milliwatts is int v ? $"{v / 1000.0:0.#} W" : "auto";
+        var pptLine = new TextBlock
+        {
+            Foreground = Secondary,
+            FontSize = 12,
+            Text = !cbs.Ok
+                ? $"BIOS limits unavailable ({cbs.Reason}) — the socket limit above is volatile SMU state"
+                // TDP and TjMax moved up into the stats row; only the flashed PPT stays here because it
+                // legitimately differs from the live cap once a limit has been applied this session.
+                : $"BIOS flash (read-only): PPT {Mw(cbs.PptBiosMw)} — firmware re-programs the live limit at every boot",
+        };
+
+        var pptRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            Margin = new Thickness(0, 8, 0, 0),
+            Children =
+            {
+                new TextBlock { Text = "Socket power limit (PPT)", Foreground = Secondary, FontSize = 13, VerticalAlignment = VerticalAlignment.Center },
+                pptBox,
+                new TextBlock { Text = "W", Foreground = Secondary, FontSize = 13, VerticalAlignment = VerticalAlignment.Center },
+                keepBoot,
+                applyPpt,
+                pptNote,
+            },
+        };
 
         var noteLine = new TextBlock { Foreground = Secondary, FontSize = 12, Margin = new Thickness(0, 8, 0, 0) };
 
@@ -258,7 +348,7 @@ public sealed partial class MainWindow : Window
             }
             noteLine.Text = s.PowerW is null
                 ? "Package power needs the amd_hsmp kernel module (sensors-detect / modules-load.d). Temp, load and frequency work without it."
-                : $"Socket power + cap read from amd_hsmp_hwmon (HSMP-reported, not decoded BIOS PBO/PPT registers) · temp from board hwmon · load from /proc/stat · RAM from /proc/meminfo · {s.Cores} threads";
+                : $"Socket power + cap read from amd_hsmp_hwmon · BIOS PPT/TDP/TjMax decoded from the CBS setup variable (offsets verified on BIOS 0617) · temp from board hwmon · load from /proc/stat · RAM from /proc/meminfo · {s.Cores} threads";
         };
         _cpuCardUpdate();
 
@@ -275,10 +365,12 @@ public sealed partial class MainWindow : Window
                 Children =
                 {
                     new TextBlock { Text = snap.Model, FontSize = 18, FontWeight = FontWeight.Bold, Foreground = ValueText },
-                    new WrapPanel { Orientation = Orientation.Horizontal, Children = { tempV, powerV, capV, loadV, freqV, ramV } },
+                    new WrapPanel { Orientation = Orientation.Horizontal, Children = { tempV, powerV, capV, tdpV, tjmaxV, loadV, freqV, ramV } },
                     new StackPanel { Spacing = 3, Margin = new Thickness(0, 6, 0, 0), Children = { loadBar, loadPct } },
                     new StackPanel { Spacing = 3, Children = { powerBar, powerText } },
                     new StackPanel { Spacing = 3, Children = { ramBar, ramText } },
+                    pptRow,
+                    pptLine,
                     noteLine,
                 },
             },
