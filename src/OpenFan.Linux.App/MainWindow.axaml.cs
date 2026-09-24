@@ -207,12 +207,15 @@ public sealed partial class MainWindow : Window
         var capV = Stat("PPT limit", out var cap);
         var loadV = Stat("Load", out var load);
         var freqV = Stat("Frequency", out var freq);
+        var ramV = Stat("RAM used", out var ramPct);
 
         var barBg = new SolidColorBrush(Color.Parse("#2C363D"));
         var loadBar = new ProgressBar { Minimum = 0, Maximum = 100, Height = 8, CornerRadius = new CornerRadius(4), Foreground = Accent, Background = barBg };
         var loadPct = new TextBlock { Foreground = ValueText, FontSize = 13 };
         var powerBar = new ProgressBar { Minimum = 0, Maximum = 100, Height = 8, CornerRadius = new CornerRadius(4), Foreground = new SolidColorBrush(Color.Parse("#4FC3F7")), Background = barBg };
         var powerText = new TextBlock { Foreground = ValueText, FontSize = 13 };
+        var ramBar = new ProgressBar { Minimum = 0, Maximum = 100, Height = 8, CornerRadius = new CornerRadius(4), Foreground = new SolidColorBrush(Color.Parse("#B388FF")), Background = barBg };
+        var ramText = new TextBlock { Foreground = ValueText, FontSize = 13 };
 
         var noteLine = new TextBlock { Foreground = Secondary, FontSize = 12, Margin = new Thickness(0, 8, 0, 0) };
 
@@ -224,6 +227,9 @@ public sealed partial class MainWindow : Window
             cap.Text = s.PptCapW is double c ? $"{c:0} W" : "—";
             load.Text = s.LoadPct is double l ? $"{l:0} %" : "—";
             freq.Text = s.MaxGHz is double g ? $"{g:0.##} GHz" : "—";
+            ramPct.Text = s.RamUsedGiB is double ru2 && s.RamTotalGiB is double rt2 && rt2 > 0
+                ? $"{ru2 / rt2 * 100:0} %"
+                : "—";
             loadBar.Value = s.LoadPct ?? 0;
             loadPct.Text = $"Load   {s.LoadPct:0.#} %";
             if (s.PowerW is double pw2 && s.PptCapW is double c2 && c2 > 0)
@@ -238,9 +244,21 @@ public sealed partial class MainWindow : Window
                 powerBar.IsVisible = false;
                 powerText.IsVisible = false;
             }
+            if (s.RamUsedGiB is double ru && s.RamTotalGiB is double rt && rt > 0)
+            {
+                ramBar.IsVisible = true;
+                ramText.IsVisible = true;
+                ramBar.Value = Math.Clamp(ru / rt * 100, 0, 100);
+                ramText.Text = $"RAM   {ru:0.##} / {rt:0.#} GiB";
+            }
+            else
+            {
+                ramBar.IsVisible = false;
+                ramText.IsVisible = false;
+            }
             noteLine.Text = s.PowerW is null
                 ? "Package power needs the amd_hsmp kernel module (sensors-detect / modules-load.d). Temp, load and frequency work without it."
-                : $"Power + PPT cap from amd_hsmp · temp from board hwmon · load from /proc/stat · {s.Cores} threads";
+                : $"Power + PPT cap from amd_hsmp · temp from board hwmon · load from /proc/stat · RAM from /proc/meminfo · {s.Cores} threads";
         };
         _cpuCardUpdate();
 
@@ -257,9 +275,10 @@ public sealed partial class MainWindow : Window
                 Children =
                 {
                     new TextBlock { Text = snap.Model, FontSize = 18, FontWeight = FontWeight.Bold, Foreground = ValueText },
-                    new WrapPanel { Orientation = Orientation.Horizontal, Children = { tempV, powerV, capV, loadV, freqV } },
+                    new WrapPanel { Orientation = Orientation.Horizontal, Children = { tempV, powerV, capV, loadV, freqV, ramV } },
                     new StackPanel { Spacing = 3, Margin = new Thickness(0, 6, 0, 0), Children = { loadBar, loadPct } },
                     new StackPanel { Spacing = 3, Children = { powerBar, powerText } },
+                    new StackPanel { Spacing = 3, Children = { ramBar, ramText } },
                     noteLine,
                 },
             },

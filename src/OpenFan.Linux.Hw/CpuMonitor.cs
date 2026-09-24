@@ -15,7 +15,8 @@ namespace OpenFan.Linux.Hw;
 public sealed class CpuMonitor
 {
     public sealed record Snapshot(string Model, double? TempC, double? PowerW, double? PptCapW,
-                                  double? LoadPct, double? MaxGHz, int Cores);
+                                  double? LoadPct, double? MaxGHz, int Cores,
+                                  double? RamUsedGiB = null, double? RamTotalGiB = null);
 
     private long _idlePrev = -1;
     private long _totalPrev = -1;
@@ -23,7 +24,9 @@ public sealed class CpuMonitor
     public Snapshot Read()
     {
         var (powerW, capW) = ReadHsmpPower();
-        return new Snapshot(ReadModel(), ReadTempC(), powerW, capW, ReadLoadPct(), ReadMaxGHz(), CoreCount());
+        var (ramUsed, ramTotal) = ReadRamGiB();
+        return new Snapshot(ReadModel(), ReadTempC(), powerW, capW, ReadLoadPct(), ReadMaxGHz(), CoreCount(),
+                            ramUsed, ramTotal);
     }
 
     private static string ReadModel()
@@ -37,6 +40,41 @@ public sealed class CpuMonitor
         catch { /* unreadable cpuinfo */ }
         return "Processor";
     }
+
+    /// <summary>Used = MemTotal - MemAvailable (the kernel's own "really free" figure).</summary>
+    private static (double? UsedGiB, double? TotalGiB) ReadRamGiB()
+    {
+        double total = 0, avail = 0;
+        var gotTotal = false;
+        var gotAvail = false;
+        try
+        {
+            foreach (var line in File.ReadLines("/proc/meminfo"))
+            {
+                if (line.StartsWith("MemTotal:", StringComparison.Ordinal))
+                {
+                    total = ParseKb(line);
+                    gotTotal = true;
+                }
+                else if (line.StartsWith("MemAvailable:", StringComparison.Ordinal))
+                {
+                    avail = ParseKb(line);
+                    gotAvail = true;
+                }
+                if (gotTotal && gotAvail)
+                    break;
+            }
+        }
+        catch { /* unreadable meminfo */ }
+        if (!gotTotal)
+            return (null, null);
+        var used = gotAvail ? total - avail : 0;
+        return (used / 1048576.0, total / 1048576.0); // kB -> GiB
+    }
+
+    private static double ParseKb(string line) =>
+        double.TryParse(line.Split(':', 2)[1].Trim().TrimEnd('k', 'B', ' '), NumberStyles.Number,
+            CultureInfo.InvariantCulture, out var kb) ? kb : 0;
 
     private static (double? PowerW, double? CapW) ReadHsmpPower()
     {
