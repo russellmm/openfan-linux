@@ -23,7 +23,8 @@ public sealed class CpuMonitor
 
     public Snapshot Read()
     {
-        var (powerW, capW) = ReadHsmpPower();
+        var power = new HsmpPowerReader().Read();
+        var (powerW, capW) = (power?.PowerW, power?.PptCapW);
         var (ramUsed, ramTotal) = ReadRamGiB();
         return new Snapshot(ReadModel(), ReadTempC(), powerW, capW, ReadLoadPct(), ReadMaxGHz(), CoreCount(),
                             ramUsed, ramTotal);
@@ -75,35 +76,6 @@ public sealed class CpuMonitor
     private static double ParseKb(string line) =>
         double.TryParse(line.Split(':', 2)[1].Trim().TrimEnd('k', 'B', ' '), NumberStyles.Number,
             CultureInfo.InvariantCulture, out var kb) ? kb : 0;
-
-    private static (double? PowerW, double? CapW) ReadHsmpPower()
-    {
-        foreach (var chip in Directory.EnumerateDirectories("/sys/class/hwmon"))
-        {
-            string name;
-            try { name = File.ReadAllText(Path.Combine(chip, "name")).Trim(); }
-            catch { continue; }
-            if (!name.Contains("hsmp", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            var w = MicroToWatt(Path.Combine(chip, "power1_input"));      // µW
-            var cap = MicroToWatt(Path.Combine(chip, "power1_cap"));      // PPT limit
-            return (w, cap);
-        }
-        return (null, null);
-    }
-
-    private static double? MicroToWatt(string path)
-    {
-        try
-        {
-            if (double.TryParse(File.ReadAllText(path).Trim(), NumberStyles.Integer,
-                    CultureInfo.InvariantCulture, out var uw))
-                return uw / 1_000_000.0;
-        }
-        catch { /* file may not exist on older kernels */ }
-        return null;
-    }
 
     private static double? ReadTempC()
     {

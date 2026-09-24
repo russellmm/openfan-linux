@@ -1,5 +1,6 @@
 using OpenFan.Core.Hardware;
 using OpenFan.Linux.Hw;
+using System.Text.Json;
 
 // openfan-linux — Linux hardware layer CLI (spec §10 Phases 2-3).
 //   openfan-linux --dump [--sysfs PATH]
@@ -9,6 +10,24 @@ if (args.Length == 0 || args[0] is "-h" or "--help")
     return Usage(args.Length == 0);
 
 var command = args[0];
+if (command == "--cpu-power")
+{
+    if (args.Length != 1)
+        return Usage(false);
+    var reading = new HsmpPowerReader().Read();
+    if (reading is null || (reading.PowerW is null && reading.PptCapW is null))
+    {
+        Console.Error.WriteLine("amd_hsmp_hwmon CPU socket power telemetry unavailable.");
+        return 2;
+    }
+    Console.WriteLine(JsonSerializer.Serialize(new
+    {
+        source = reading.Source,
+        socketPowerW = reading.PowerW,
+        socketPowerCapW = reading.PptCapW,
+    }));
+    return 0;
+}
 string? sysfs = null;
 int seconds = 10;
 
@@ -200,6 +219,7 @@ static int Usage(bool ok)
         openfan-linux — OpenFan hardware layer (Ubuntu)
 
           --dump [--sysfs PATH]                      list PWM + GPU controls, temps, tachs
+          --cpu-power                                read socket power and cap as JSON (never writes)
           --apply-once ID PERCENT [--seconds N]      hold one fan at PERCENT (default 10 s), then restore
 
         Examples:
