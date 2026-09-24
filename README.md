@@ -60,6 +60,25 @@ dotnet build && dotnet test          # 91 tests
 Without the helper/udev setup installed, the app still runs read-mostly (monitor + UI) and reports write failures
 on the affected cards. CLI smoke tools: `openfan-linux --dump`, `--procs`.
 
+### Threadripper socket power (read-only)
+
+On the 9970X, Linux exposes the AMD HSMP hardware monitor at `/sys/class/hwmon/hwmon*/name = amd_hsmp_hwmon`.
+Its `power1_input` reports live socket power and `power1_cap` reports the socket power cap, both in microwatts.
+The CPU page already displays these values. For scripts or integrations, run:
+
+```bash
+dotnet src/OpenFan.Linux.Cli/bin/Debug/net8.0/openfan-linux.dll --cpu-power
+# {"source":"amd_hsmp_hwmon","socketPowerW":65.088,"socketPowerCapW":300}
+```
+
+This command only reads sysfs; it requires no sudo and never opens `/dev/hsmp`, writes `power1_cap`, or sends an
+SMU request. A missing driver/sensor yields exit code 2 instead of a guessed value; individual missing readings
+are JSON `null`. The cap is the **HSMP-reported socket power cap**, not a claim that BIOS PBO PPT, TDC, or EDC
+registers have been decoded. RyzenAdj/ryzen_smu family/model mappings are not validated for this CPU, and their
+PM-table setup invokes SMU commands, so they are intentionally not used. If `amd_hsmp_hwmon` is absent, check
+whether the kernel's `amd_hsmp` driver is available; never force a different CPU model mapping.
+
+
 ## Known limitations
 
 - **GPU fan RPM is unavailable on driver 595.x** (`nvmlDeviceGetFanSpeedRPM` fails; no nvidia hwmon chip). Duty %

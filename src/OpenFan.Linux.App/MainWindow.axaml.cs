@@ -203,8 +203,8 @@ public sealed partial class MainWindow : Window
         }
 
         var tempV = Stat("Temp", out var temp);
-        var powerV = Stat("Power (PPT)", out var power);
-        var capV = Stat("PPT limit", out var cap);
+        var powerV = Stat("Socket power", out var power);
+        var capV = Stat("Socket cap", out var cap);
         var loadV = Stat("Load", out var load);
         var freqV = Stat("Frequency", out var freq);
         var ramV = Stat("RAM used", out var ramPct);
@@ -237,7 +237,7 @@ public sealed partial class MainWindow : Window
                 powerBar.IsVisible = true;
                 powerText.IsVisible = true;
                 powerBar.Value = Math.Clamp(pw2 / c2 * 100, 0, 100);
-                powerText.Text = $"PPT   {pw2:0.#} / {c2:0} W";
+                powerText.Text = $"Socket draw   {pw2:0.#} / {c2:0} W (HSMP-reported cap)";
             }
             else
             {
@@ -258,7 +258,7 @@ public sealed partial class MainWindow : Window
             }
             noteLine.Text = s.PowerW is null
                 ? "Package power needs the amd_hsmp kernel module (sensors-detect / modules-load.d). Temp, load and frequency work without it."
-                : $"Power + PPT cap from amd_hsmp · temp from board hwmon · load from /proc/stat · RAM from /proc/meminfo · {s.Cores} threads";
+                : $"Socket power + cap read from amd_hsmp_hwmon (HSMP-reported, not decoded BIOS PBO/PPT registers) · temp from board hwmon · load from /proc/stat · RAM from /proc/meminfo · {s.Cores} threads";
         };
         _cpuCardUpdate();
 
