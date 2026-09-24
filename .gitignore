@@ -7,3 +7,6 @@ publish/
 .idea/
 *.suo
 *.userprefs
+
+# hsmp-control built in place by test-cli.sh / install-persistence.sh
+tools/hsmp-control/hsmp-control

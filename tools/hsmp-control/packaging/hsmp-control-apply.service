@@ -1,0 +1,25 @@
+[Unit]
+Description=Re-assert configured Threadripper socket power limit (HSMP PPT)
+Documentation=https://github.com/russellmm/openfan-linux/tree/main/tools/hsmp-control
+# /dev/hsmp must exist. HSMP is usually built in or loaded by modules-load, but if the driver
+# appears late the retry below covers it rather than silently leaving the limit unapplied.
+After=systemd-modules-load.service
+# Skip entirely when no override is configured, instead of running a no-op.
+ConditionPathExists=/etc/hsmp-control/ppt_mw
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/hsmp-control apply
+# The tool re-validates CPU model, HSMP protocol 7 and the configured range itself, and journals
+# this boot's baseline in /run so `restore --confirm` has a trustworthy target.
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=0
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

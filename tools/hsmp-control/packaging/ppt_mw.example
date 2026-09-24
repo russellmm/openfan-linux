@@ -1,0 +1,12 @@
+# Desired CPU socket power limit (PPT) in milliwatts, re-asserted at every boot by
+# hsmp-control-apply.service. Accepted window: 100000..300000 mW (same as openfan-linux's CPU control).
+#
+# This is a runtime HSMP setting, not the BIOS value. The SMU limit is volatile: after a reboot
+# firmware re-programs it from CBS (visible as "PPT (BIOS default, flash)" in `limits`), which
+# is exactly why this file and the unit exist. Changing the BIOS default itself requires Setup —
+# this firmware refuses OS-runtime writes to that variable while Secure Boot is enabled.
+#
+# The first non-comment line wins. Absent file or absent service means "no override wanted":
+# the limit stays wherever CBS put it.
+
+290000

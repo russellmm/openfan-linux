@@ -40,27 +40,45 @@ Threadripper 9970X + RTX 5060 Ti / 2× RTX PRO 6000 Blackwell (driver 595.x).
 ```
 src/OpenFan.Core/         portable engine: curves, control loop, settings store (no Linux deps)
 src/OpenFan.Linux.Hw/     hwmon sysfs backend, NVML backend (+telemetry), helper socket client
-src/OpenFan.Linux.Helper/ privileged daemon: fan writes + power limits over /run/openfan/helper.sock
+src/OpenFan.Linux.Helper/ privileged daemon: fan writes + GPU/CPU power limits over /run/openfan/helper.sock
 src/OpenFan.Linux.App/    Avalonia UI (pages, calibration window, tray)
 ```
 
 Privilege model: PWM write access via a udev rule (`openfan` group); NVML GPU writes go through
 `openfan-helper.service` running as root over a `0660` socket (newline protocol:
-`ping | set <id> <pct> | default <id> | power <uuid> <watts> | quit`). The helper restores any fan it took over
-if the app disconnects — GPU power limits intentionally persist. See [`packaging/README.md`](packaging/README.md)
-for the install chain (udev rule, modules-load, helper service).
+`ping | set <id> <pct> | default <id> | power <uuid> <watts> | cpupower <W>|default | cpuboot <W>|clear | quit`).
+The helper restores any fan it took over if the app disconnects — power limits intentionally persist.
+See [`packaging/README.md`](packaging/README.md) for the install chain (udev rule, modules-load, helper service).
 
 ## Build & run
 
 ```bash
-dotnet build && dotnet test          # 91 tests
+dotnet build && dotnet test          # 124 tests
 ./src/OpenFan.Linux.App/bin/Debug/net8.0/openfan
 ```
 
 Without the helper/udev setup installed, the app still runs read-mostly (monitor + UI) and reports write failures
 on the affected cards. CLI smoke tools: `openfan-linux --dump`, `--procs`.
 
-### Threadripper socket power (read-only)
+### Threadripper socket power: PPT is settable, TDP/TjMax are read-only
+
+The CPU tab has a **Socket power limit (PPT)** box (100–300 W) with a *keep after reboot* checkbox —
+the same interaction as the GPU watts control. Writes go through `openfan-helper`, so the app itself
+never needs root; each write is verified by reading `power1_cap` back, and a refused or clamped value
+is reported in place rather than shown as applied. *keep after reboot* is the single switch for
+persistence: ticked, it writes `/etc/hsmp-control/ppt_mw` for `hsmp-control-apply.service` (in the
+`tr9970x-hsmp` repo) to re-assert early at boot, and openfan re-asserts it on start too. Unticked,
+**nothing** brings the limit back after a boot — not the service, and not openfan itself when it
+launches — so firmware's own value stands; HSMP state is volatile and firmware re-programs it from
+BIOS CBS every boot. TDP and TjMax are deliberately **not** editable:
+they exist only in the BIOS variable, which this firmware refuses to let the OS write while Secure
+Boot is enabled (`EFI_SECURITY_VIOLATION`, verified), so they appear read-only beside the box. This
+control has nothing to do with fan behaviour — it is a power knob, not a thermal one.
+
+The companion CLI lives in [`tools/hsmp-control`](tools/hsmp-control/README.md): same firmware state,
+usable from scripts and by the boot service that provides persistence. `sudo
+tools/hsmp-control/packaging/install-persistence.sh <watts>` installs that unit; openfan detects
+it and reports honestly whether a saved limit will actually survive a reboot.
 
 On the 9970X, Linux exposes the AMD HSMP hardware monitor at `/sys/class/hwmon/hwmon*/name = amd_hsmp_hwmon`.
 Its `power1_input` reports live socket power and `power1_cap` reports the socket power cap, both in microwatts.
@@ -68,15 +86,37 @@ The CPU page already displays these values. For scripts or integrations, run:
 
 ```bash
 dotnet src/OpenFan.Linux.Cli/bin/Debug/net8.0/openfan-linux.dll --cpu-power
-# {"source":"amd_hsmp_hwmon","socketPowerW":65.088,"socketPowerCapW":300}
+# {"source":"amd_hsmp_hwmon","socketPowerW":71.815,"socketPowerCapW":295,
+#  "pptDesiredMw":null,"tdpMw":245000,"pptBiosMw":295000,"tjmaxC":80,
+#  "tdpControl":"manual","pptBiosControl":"manual","tjmaxControl":"manual",
+#  "cbsOk":true,"cbsReason":null}
 ```
 
-This command only reads sysfs; it requires no sudo and never opens `/dev/hsmp`, writes `power1_cap`, or sends an
-SMU request. A missing driver/sensor yields exit code 2 instead of a guessed value; individual missing readings
-are JSON `null`. The cap is the **HSMP-reported socket power cap**, not a claim that BIOS PBO PPT, TDC, or EDC
-registers have been decoded. RyzenAdj/ryzen_smu family/model mappings are not validated for this CPU, and their
-PM-table setup invokes SMU commands, so they are intentionally not used. If `amd_hsmp_hwmon` is absent, check
-whether the kernel's `amd_hsmp` driver is available; never force a different CPU model mapping.
+Three power numbers, deliberately kept separate: `socketPowerCapW` is the **live** HSMP limit and is
+volatile — firmware re-programs it from BIOS at every boot, so it is not the persistent setting.
+`pptBiosMw` is the **BIOS default held in flash**, i.e. what the SMU receives at next boot.
+`pptDesiredMw` is what the `hsmp-control apply` boot helper is configured to re-assert from
+`/etc/hsmp-control/ppt_mw` (`null` = no override configured); comparing desired/live/BIOS-default is
+how drift becomes visible. `tdpMw` and `tjmaxC` are **read-only** — the firmware refuses OS-runtime
+writes to that variable while Secure Boot is enabled, so OpenFan reports them and never attempts a
+write.
+
+Values are `null`, never zero-guesses, in two distinct cases: the field is set to Auto in BIOS (the
+effective limit then comes from CPU fuses and is not exposed to the OS — see the matching
+`*Control` string), or the CBS variable could not be read/validated (`cbsOk:false` with `cbsReason`,
+e.g. after a BIOS update moved a field). Treat `null` as "unknown" and fall back to hwmon-only logic,
+not as an unlimited ceiling.
+
+This command still requires no sudo and never opens `/dev/hsmp`, writes `power1_cap`, or sends an SMU
+request; the BIOS fields come from the world-readable (`0644`) EFI variable copy, which is cached at
+boot — matching how often those values can change. A missing driver/sensor yields exit code 2 instead
+of a guessed value. TDP/PPT/TjMax offsets were decoded from the AMI BIOS Setting Mapping Table in
+BIOS 0617 for the TRX50-SAGE WIFI A and verified against the live variable (see
+`tr9970x-hsmp/FINDINGS-CBS-VARSTORE.md`); they are **not** validated on other boards or BIOS
+versions, hence the magic-and-range checks that fail closed. RyzenAdj/ryzen_smu family/model mappings
+are not validated for this CPU, and their PM-table setup invokes SMU commands, so they are
+intentionally not used. If `amd_hsmp_hwmon` is absent, check whether the kernel's `amd_hsmp` driver is
+available; never force a different CPU model mapping.
 
 
 ## Known limitations
