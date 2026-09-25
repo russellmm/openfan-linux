@@ -39,7 +39,8 @@ Threadripper 9970X + RTX 5060 Ti / 2× RTX PRO 6000 Blackwell (driver 595.x).
   the **Tray** page: pick any temperature sensor plus CPU socket power / cap and each GPU's board power, give every
   tile its own background colour (eight curated swatches or a full RGB picker with hex paste), **click any tile's name
   to rename it** (the tooltip names the sensor and its PCI bus — "NVIDIA RTX PRO 6000 Blackwell Workstation Edition
-  E1:00.0 (GPU 3) — board power" — with the raw id underneath, so two identical cards are tellable apart), reorder them, choose tiles per row and overall size
+  E1:00.0 (GPU 3) — board power" — with the raw id underneath, so two identical cards are tellable apart), NVMe entries named by drive model and PCI address
+  (`a9:00.0 Composite · WD_BLACK SN850X 8000GB`, same source as the Sensors page headings), reorder them, choose tiles per row and overall size
   (XSmall / Small / Normal / Large / Huge), and decide
   whether it stays above other windows. Text colour is derived from the tile colour's luminance so it stays readable whatever you pick; drag it
   anywhere and it remembers where you left it (and if that position stops being reachable — a monitor goes away — it
