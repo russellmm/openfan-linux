@@ -113,6 +113,39 @@ public class HudTests
     }
 
     [Fact]
+    public void Tooltip_describes_a_gpu_tile_by_name_not_by_uuid()
+    {
+        const string id = "nvml:GPU-d0f36b3b-abad-1a42-0e65-e78da2139da3:power:w";
+
+        var text = HudDescribe.Of(id, "NVIDIA RTX PRO 6000 Blackwell Workstation Edition");
+
+        text.Should().Contain("RTX PRO 6000");
+        text.Should().Contain("board power");
+        text.Should().NotContain("GPU-d0f36b3b", "a UUID in a tooltip tells the user nothing about which card it is");
+    }
+
+    [Theory]
+    [InlineData("cpu:power:w", "CPU socket power draw (HSMP)")]
+    [InlineData("cpu:pptcap:w", "CPU socket power limit — PPT cap")]
+    [InlineData("cpu:temp:c", "CPU package temperature")]
+    public void Cpu_synthetics_read_as_plain_language(string id, string expected) =>
+        HudDescribe.Of(id).Should().Be(expected);
+
+    [Fact]
+    public void Named_hwmon_sensors_show_their_name_and_group() =>
+        HudDescribe.Of("hwmon:nct6799:10:temp:temp1", "CPU Optimal", "Motherboard").Should().Be("CPU Optimal (Motherboard)");
+
+    [Fact]
+    public void Unknown_source_without_a_name_falls_back_to_the_id_derived_label() =>
+        HudDescribe.Of("hwmon:k10temp:0:temp:Tctl").Should().Contain("k10temp");
+
+    [Theory]
+    [InlineData(0.56, 0.56)]   // XSmall is legal and distinct from Small
+    [InlineData(0.49, 1.0)]    // below the floor falls back rather than rendering an unreadable strip
+    public void Scale_floor_accommodates_xsmall_without_letting_it_vanish(double raw, double expected) =>
+        HudLayout.ClampScale(raw).Should().Be(expected);
+
+    [Fact]
     public void Off_screen_saved_position_comes_back_grabbable()
     {
         // Strip parked on a monitor that no longer exists: 1600x900 desktop, saved at x=2600.

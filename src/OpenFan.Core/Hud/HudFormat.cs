@@ -54,8 +54,9 @@ public static class HudFormat
 
         if (sourceId.StartsWith("nvml:", StringComparison.OrdinalIgnoreCase))
         {
+            // nvml:<uuid>:<kind>:<index|label> — the kind is segment 2.
             var parts = sourceId.Split(':');
-            var what = parts.Length > 3 ? parts[3] : "";
+            var what = parts.Length > 2 ? parts[2] : "";
             var who = gpuName is { Length: > 0 } n ? Shorten(n)
                   : gpuIndex is int i ? $"GPU {i + 1}"
                   : "GPU";
@@ -99,7 +100,7 @@ public static class HudLayout
     /// <summary>Legal tiles-per-row. Anything silly (0, negative, absurd) collapses to a single column.</summary>
     public static int ClampColumns(int columns) => columns is >= 1 and <= MaxColumns ? columns : 1;
 
-    public const double MinScale = 0.6;
+    public const double MinScale = 0.5;
     public const double MaxScale = 2.5;
 
     /// <summary>Overlay scale. Nonsense values (0, NaN, negative, absurd) fall back to 1.0 rather than
@@ -142,6 +143,47 @@ public static class HudLayout
         var nx = Math.Clamp(x, left, Math.Max(left, right - keepX));
         var ny = Math.Clamp(y, top, Math.Max(top, bottom - keepY));
         return ((int)nx, (int)ny);
+    }
+}
+
+/// <summary>Plain-language description of a tile's source, for tooltips. The raw id stays available
+/// separately — it is what the config stores — but leading with "nvml:GPU-d0f3…:power:w" tells a user
+/// nothing about which card they are looking at.</summary>
+public static class HudDescribe
+{
+    public static string Of(string sourceId, string? friendlyName = null, string? group = null)
+    {
+        var id = sourceId.ToLowerInvariant();
+        switch (id)
+        {
+            case "cpu:power:w": return "CPU socket power draw (HSMP)";
+            case "cpu:pptcap:w": return "CPU socket power limit — PPT cap";
+            case "cpu:temp:c": return "CPU package temperature";
+        }
+
+        if (id.StartsWith("nvml:", StringComparison.Ordinal))
+        {
+            var who = string.IsNullOrWhiteSpace(friendlyName) ? "GPU" : friendlyName!.Trim();
+            // Same id shape as LabelFor: kind is segment 2, not 3.
+            var parts = sourceId.Split(':');
+            var what = parts.Length > 2 ? parts[2] : "";
+            return what switch
+            {
+                "power" => $"{who} — board power",
+                "temp" => $"{who} — GPU temperature",
+                "fan" => $"{who} — fan speed %",
+                "tach" => $"{who} — fan RPM",
+                _ => $"{who} — {what}",
+            };
+        }
+
+        if (!string.IsNullOrWhiteSpace(friendlyName))
+        {
+            var suffix = string.IsNullOrWhiteSpace(group) ? "" : $" ({group})";
+            return $"{friendlyName}{suffix}";
+        }
+
+        return HudFormat.LabelFor(sourceId);
     }
 }
 

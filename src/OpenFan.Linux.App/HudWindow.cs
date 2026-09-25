@@ -307,7 +307,10 @@ public sealed class HudWindow : Window
         menu.Items.Add(topmost);
 
         var size = new MenuItem { Header = "Size" };
-        foreach (var (sizeLabel, scale) in new[] { ("Small", 0.75), ("Normal", 1.0), ("Large", 1.35), ("Huge", 1.8) })
+        foreach (var (sizeLabel, scale) in new[]
+        {
+            ("XSmall", 0.56), ("Small", 0.75), ("Normal", 1.0), ("Large", 1.35), ("Huge", 1.8),
+        })
         {
             var captured = scale;
             var item = new MenuItem { Header = sizeLabel };

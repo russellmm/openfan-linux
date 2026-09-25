@@ -70,7 +70,14 @@ public sealed partial class MainWindow : Window
         ExitBtn.Click += (_, _) =>
         {
             Exiting = true; // lifetime.Exit restores all owned fans + saves (spec §3.2)
-            Close();
+
+            // Shutdown(), not Close(): the desktop overlay is a second top-level window, and Avalonia's
+            // default OnLastWindowClose means closing "the main window" while the HUD is visible leaves the
+            // process running with no visible UI. The tray Exit item already shut down this way.
+            if (Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime lifetime)
+                lifetime.Shutdown();
+            else
+                Close();
         };
 
         NewFlatFab.Click += (_, _) => CreateCurve("flat");

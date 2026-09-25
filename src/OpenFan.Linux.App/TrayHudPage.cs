@@ -65,7 +65,7 @@ public partial class MainWindow
 
         var sizes = new ComboBox
         {
-            ItemsSource = new[] { "Small", "Normal", "Large", "Huge" },
+            ItemsSource = new[] { "XSmall", "Small", "Normal", "Large", "Huge" },
             SelectedIndex = SizeIndex(_app.Settings.HudScale),
             MinWidth = 110,
         };
@@ -189,7 +189,7 @@ public partial class MainWindow
             Classes = { "cardname" },
             Margin = new Thickness(6, 0, 6, 0),
         };
-        ToolTip.SetTip(name, $"{tile.SourceId}\nClick to rename this tile.");
+        ToolTip.SetTip(name, $"{DescribeTile(tile)}\n{tile.SourceId}\nClick to rename this tile.");
         name.LostFocus += (_, _) => CommitLabel(tile, name);
         name.KeyDown += (_, e) =>
         {
@@ -264,7 +264,8 @@ public partial class MainWindow
         (Application.Current as App)?.HudRefreshNow();
     }
 
-    private static readonly double[] SizeScales = [0.75, 1.0, 1.35, 1.8];
+    /// <summary>Index-aligned with the ComboBox above. XSmall is ~25% smaller than Small.</summary>
+    private static readonly double[] SizeScales = [0.56, 0.75, 1.0, 1.35, 1.8];
 
     private static int SizeIndex(double scale)
     {
@@ -277,6 +278,31 @@ public partial class MainWindow
             if (delta < bestDelta) { bestDelta = delta; best = i; }
         }
         return best;
+    }
+
+    /// <summary>
+    /// Human name for a tile: GPU names come from NVML (the source id only carries the UUID), other sensors
+    /// from the inventory, with the nickname the user set on the Sensors page taking precedence.
+    /// </summary>
+    private string DescribeTile(HudTileSettings tile)
+    {
+        var id = tile.SourceId;
+
+        if (id.StartsWith("nvml:", StringComparison.OrdinalIgnoreCase))
+        {
+            var parts = id.Split(':');
+            if (parts.Length >= 2)
+                foreach (var g in _app.Nvml.SnapshotAll())
+                    if (g.Uuid == parts[1])
+                        return HudDescribe.Of(id, g.Name);
+        }
+
+        var item = _app.Inventory.FirstOrDefault(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase));
+        var friendly = item is null
+            ? null
+            : (_app.Settings.SensorNicknames.TryGetValue(id, out var nick) && !string.IsNullOrWhiteSpace(nick) ? nick : item.Name);
+
+        return HudDescribe.Of(id, friendly ?? tile.Label, item?.Group);
     }
 
     private void MoveTile(int index, int delta)

@@ -102,7 +102,13 @@ public sealed class App : Application
             return;
         }
 
-        _hud ??= new HudWindow(Hardware!);
+        if (_hud is null)
+        {
+            _hud = new HudWindow(Hardware!);
+            // Alt+F4 or a WM close destroys it; without this the field would hold a closed window and
+            // re-enabling from the Tray page would silently do nothing.
+            _hud.Closed += (_, _) => _hud = null;
+        }
         if (!_hud.IsVisible) _hud.Show();
         _hud.ApplySavedPosition();   // the WM re-places borderless windows at map time
         _hud.Refresh();
