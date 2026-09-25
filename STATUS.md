@@ -212,6 +212,17 @@ renderer, `TrayHudPage.cs` is the picker (partial class of MainWindow), `HudColo
 - **Idle cost measured**, not assumed: 1.04 s vs 0.91 s CPU per 30 s wall with the overlay on vs off (~0.03 % of one
   core). Closing the main window hides it (`e.Cancel = true` + `Hide()`), so the DispatcherTimer keeps ticking and the
   overlay keeps updating from the tray process.
+- **A second top-level window breaks `Close()`-based exit.** The header Exit button used to set `Exiting = true` and
+  `Close()` the main window, relying on Avalonia's default `ShutdownMode.OnLastWindowClose`. Once the desktop overlay
+  existed, "the last window" was no longer the main one: Exit hid the UI and left a live process with no visible UI.
+  Exit now calls `IClassicDesktopStyleApplicationLifetime.Shutdown()` (what the tray Exit always did). Any future
+  top-level window — a dialog, a second HUD — has the same consequence. Closing the window with the WM close button
+  must keep *hiding* to tray; both paths are verified separately.
+- **NVML sensor ids put the kind in segment 2**: `nvml:<uuid>:<kind>:<index|label>`. Code reading `parts[3]` gets
+  `"w"` or `"core"` and yields labels like "GPU w". hwmon ids have a different shape, so don't share one splitter.
+- **`dotnet test tests/OpenFan.Core.Tests` does not rebuild the Avalonia app.** A correct Core fix looked broken in the
+  lab because the launched `openfan.dll` was stale; build `src/OpenFan.Linux.App` before any visual check.
+
 - **The rebuild signature must hash everything `Rebuild()` reads.** It hashed only the tiles, so changing tiles-per-row
   from the Tray page saved the setting and left the strip laid out the old way — a silent no-op. The overlay's own menu
   masked it because that path nulls `_signature` before refreshing. Columns and scale are in the hash now
