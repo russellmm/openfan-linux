@@ -47,6 +47,9 @@ public sealed class AppSettings
     /// <summary>Overlay size multiplier (Settings ▸ Tray). Clamped by HudLayout.ClampScale.</summary>
     public double HudScale { get; set; } = 1.0;
 
+    /// <summary>Window scale override as a percentage (125 = 1.25×). 0 = automatic, i.e. trust Xft.dpi.</summary>
+    public double UiScalePercent { get; set; }
+
     /// <summary>Keep the overlay above ordinary windows. Off lets it behave like a normal window so it can
     /// be covered when you want the desktop in front.</summary>
     public bool HudTopMost { get; set; } = true;

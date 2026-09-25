@@ -229,6 +229,22 @@ renderer, `TrayHudPage.cs` is the picker (partial class of MainWindow), `HudColo
   because menu width truncates long names from the right and would cut off exactly the disambiguator. This machine has
   two RTX PRO 6000 cards at `11:00.0` and `E1:00.0`, identical text without it — the same reason `GpuFormat.GpuLabel`
   exists for the fan pages.
+- **"Only after a reboot" was a startup race, not a scaling bug.** OpenFan autostarts at login, and GNOME writes
+  `Xft.dpi` into the X resource database shortly *after* autostart apps begin. Reading it too early yields nothing, so
+  Avalonia scales at 1.0 — on this box (2 × 4K BenQ/Coolermaster, monitor scale 1.25, text scaling 1.21) that is the
+  difference between a 3096×2108 window and a 1340×974 one. Manual launches minutes later always look correct, which
+  is what made it look unreproducible. Automatic mode now waits up to 2.5 s for the hint, but only on a Wayland
+  session and only when it is genuinely absent, so ordinary starts are unaffected.
+- **`AVALONIA_SCREEN_SCALE_FACTORS` needs connector names.** Measured here: `*=2.4` changed nothing at all while
+  `DP-2=2.4;DP-3=2.4` produced the expected size — a wildcard pin is a silent no-op, which is worse than no pin.
+  Pins enumerate connectors via mutter's D-Bus (`GetCurrentState`) with an `xrandr --listmonitors` fallback.
+- **Don't derive the factor from mutter's per-monitor scale alone.** Tried and rejected: on GNOME/XWayland an X pixel
+  is not a device pixel (X reports 6144 px across a 3840 px panel, so 0.625 device px each), and text scaling is
+  separate. `Xft.dpi 232` is exactly `1.25 × 1.21 / 0.625`, while mutter's bare `1.25` reproduces the tiny-window bug.
+- **Xvfb cannot validate HiDPI scaling work.** Its DPI baseline differs from a real compositor's: the rescue path and
+  the control both rendered identically there, which would have looked like a fix that did nothing. Verify scale
+  changes on the actual session (`Settings ▸ Window scale` reports the factor in use).
+
 - **NVMe identity comes from the controller class directory, not the hwmon symlink.** `/sys/class/hwmon/hwmonN/device`
   is a *relative* link and the class directories are themselves links, so resolving it to a real path is unreliable; the
   link's **name** (`nvmeN`) is enough, and `/sys/class/nvme/nvmeN/model` + `address` are plain world-readable files.

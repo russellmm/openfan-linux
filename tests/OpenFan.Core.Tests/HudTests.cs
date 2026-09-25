@@ -2,6 +2,7 @@ using System.Text.Json;
 using FluentAssertions;
 using OpenFan.Core.Config;
 using OpenFan.Core.Hardware;
+using OpenFan.Core.Platform;
 using OpenFan.Core.Hud;
 using Xunit;
 
@@ -185,6 +186,38 @@ public class HudTests
     [Fact]
     public void Unknown_source_without_a_name_falls_back_to_the_id_derived_label() =>
         HudDescribe.Of("hwmon:k10temp:0:temp:Tctl").Should().Contain("k10temp");
+
+    [Theory]
+    [InlineData(0)]                // 0 means automatic: say nothing, let the toolkit detect
+    [InlineData(-5)]
+    [InlineData(999)]              // an absurd pin is ignored rather than blinding the user
+    public void Non_percentage_pins_are_ignored(double percent) =>
+        UiScale.FactorsFromPercent(percent, new[] { "DP-2" }).Should().BeNull();
+
+    [Fact]
+    public void Pinned_scale_names_every_connector_because_wildcards_are_ignored()
+    {
+        // Avalonia's X11 backend matched this per connector in measurement: "*=2.4" did nothing,
+        // "DP-2=2.4;DP-3=2.4" worked. A pin that silently does nothing is worse than no pin.
+        UiScale.FactorsFromPercent(240, new[] { "DP-2", "DP-3" }).Should().Be("DP-2=2.4;DP-3=2.4");
+        UiScale.FactorsFromPercent(125, new[] { "eDP-1" }).Should().Be("eDP-1=1.25");
+    }
+
+    [Fact]
+    public void Pinned_scale_still_emits_something_with_no_connectors_enumerated() =>
+        UiScale.FactorsFromPercent(150, Array.Empty<string>()).Should().Be("*=1.5");
+
+    [Theory]
+    [InlineData(96, null)]     // the default X reports before a HiDPI session publishes its real value
+    [InlineData(0, null)]
+    [InlineData(232, 2.4167)]
+    [InlineData(192, 2.0)]
+    public void Dpi_hint_is_ignored_until_it_says_something(double dpi, double? expected) =>
+        UiScale.FactorFromDpi(dpi).Should().Be(expected);
+
+    [Fact]
+    public void Scale_percentage_label_is_readable() =>
+        UiScale.PercentLabel(2.4167).Should().Be("241.7%");
 
     [Theory]
     [InlineData(0.56, 0.56)]   // XSmall is legal and distinct from Small

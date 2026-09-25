@@ -89,6 +89,25 @@ GNOME refuses to launch an untrusted `.desktop`) at it. `OPENFAN_BIN=/path/to/op
 wrapper when one exists, but takes an explicit Exec path as `$1` — pass `~/.local/bin/openfan` rather than letting it
 default to a build-specific binary.
 
+### Window size and display scaling
+
+On a Wayland desktop OpenFan runs as an X11 client through XWayland, where its size comes from the session's
+`Xft.dpi` hint. Two things go wrong there in practice, and both are handled:
+
+- **Login autostart can beat the desktop.** GNOME writes `Xft.dpi` a moment after starting autostart apps, so an
+  app that reads it immediately gets nothing and draws at scale 1 — a postage-stamp window on a HiDPI panel, but
+  only at login; launching it by hand later looks fine. OpenFan now waits up to 2.5 s for the hint **only when it
+  is missing on a Wayland session**, so a normal launch pays nothing.
+- **The toolkit's override needs connector names.** `AVALONIA_SCREEN_SCALE_FACTORS="*=2"` is silently ignored;
+  `DP-2=2;DP-3=2` works. Pins therefore enumerate the displays (mutter, falling back to `xrandr`).
+
+If a window is still the wrong size, **Settings ▸ Window scale** pins it for every display — it shows the factor in
+use right now, applies on next launch, and survives reboots. To see what happened at login:
+
+```bash
+journalctl --user -u app-openfan@autostart.service -b | grep -E "window scale|session published"
+```
+
 ### Threadripper socket power: PPT is settable, TDP/TjMax are read-only
 
 The CPU tab has a **Socket power limit (PPT)** box (100–300 W) with a *keep after reboot* checkbox —

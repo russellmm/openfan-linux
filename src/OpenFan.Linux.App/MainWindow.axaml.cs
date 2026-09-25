@@ -11,6 +11,7 @@ using Avalonia.Threading;
 using OpenFan.Core.Curves;
 using OpenFan.Core.Config;
 using OpenFan.Core.Hardware;
+using OpenFan.Core.Platform;
 using OpenFan.Linux.Hw;
 
 namespace OpenFan.Linux.App;
@@ -1453,6 +1454,52 @@ public sealed partial class MainWindow : Window
                 {
                     new TextBlock { Text = $"Sensor sources: hwmon + NVML ({_app.Inventory.Count} sensors)", FontWeight = FontWeight.SemiBold },
                     new TextBlock { Text = "Chips and GPUs are detected automatically every second — plug in hardware and it appears. Rename anything on the Sensors page.", Foreground = Secondary, FontSize = 12, TextWrapping = TextWrapping.Wrap },
+                },
+            },
+        });
+
+        // Window scale: what the session gave us, plus a pin for sessions whose hint is missing or wrong.
+        var scaleOptions = new ComboBox { MinWidth = 150, HorizontalAlignment = HorizontalAlignment.Left };
+        var percentSteps = new (string Label, double Percent)[]
+        {
+            ("Automatic", 0), ("100%", 100), ("125%", 125), ("150%", 150), ("175%", 175),
+            ("200%", 200), ("240%", 240), ("250%", 250), ("300%", 300),
+        };
+        scaleOptions.ItemsSource = percentSteps.Select(p => p.Label).ToList();
+        var savedPct = _app.Settings.UiScalePercent;
+        var idx = Array.FindIndex(percentSteps, p => Math.Abs(p.Percent - savedPct) < 0.5);
+        scaleOptions.SelectedIndex = idx < 0 ? 0 : idx;
+        var scaleNote = new TextBlock
+        {
+            Foreground = Secondary, FontSize = 12, TextWrapping = TextWrapping.Wrap,
+            Text = $"In use right now: {RenderScaling:0.###}× ({UiScale.PercentLabel(RenderScaling)}). " +
+                   "Automatic follows the session's scaling hint, including waiting briefly for it when OpenFan " +
+                   "starts from login before the desktop has published one. If the window is still the wrong size, " +
+                   "pin it here — it applies to every display, takes effect next launch, and survives reboots.",
+        };
+        scaleOptions.SelectionChanged += (_, _) =>
+        {
+            if (scaleOptions.SelectedIndex < 0) return;
+            var pct = percentSteps[scaleOptions.SelectedIndex].Percent;
+            if (Math.Abs(_app.Settings.UiScalePercent - pct) < 0.5) return;
+            _app.Settings.UiScalePercent = pct;
+            _app.Save();
+            scaleNote.Text = pct > 0
+                ? $"Pinned to {pct:0.#}% — restart OpenFan to apply."
+                : "Set to automatic — restart OpenFan to apply.";
+        };
+        system.Children.Add(new Border
+        {
+            Background = CardBg, BorderBrush = CardBorder, BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8), Padding = new Thickness(14, 10, 14, 10),
+            Child = new StackPanel
+            {
+                Spacing = 6,
+                Children =
+                {
+                    new TextBlock { Text = "Window scale", FontWeight = FontWeight.SemiBold },
+                    scaleOptions,
+                    scaleNote,
                 },
             },
         });

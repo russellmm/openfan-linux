@@ -1,4 +1,5 @@
 using Avalonia;
+using OpenFan.Core.Config;
 
 namespace OpenFan.Linux.App;
 
@@ -21,6 +22,13 @@ internal static class Program
             Console.Error.WriteLine("OpenFan is already running (lock: " + lockPath + ")");
             return 1;
         }
+
+        // Window scale must be decided before Avalonia reads the display, so it is applied here rather than in App.
+        try
+        {
+            SessionScale.Apply(new SettingsStore(FanApp.ActiveConfigPathAtStartup()).Load().UiScalePercent);
+        }
+        catch { /* unreadable settings: automatic detection */ }
 
         AppDomain.CurrentDomain.UnhandledException += (_, a) => ErrorLog.Write("Unhandled", a.ExceptionObject as Exception);
         TaskScheduler.UnobservedTaskException += (_, a) => { ErrorLog.Write("Unobserved task", a.Exception); a.SetObserved(); };
