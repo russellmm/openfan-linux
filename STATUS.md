@@ -212,6 +212,8 @@ renderer, `TrayHudPage.cs` is the picker (partial class of MainWindow), `HudColo
 - **Idle cost measured**, not assumed: 1.04 s vs 0.91 s CPU per 30 s wall with the overlay on vs off (~0.03 % of one
   core). Closing the main window hides it (`e.Cancel = true` + `Hide()`), so the DispatcherTimer keeps ticking and the
   overlay keeps updating from the tray process.
+- **Empty state is a labelled strip, not a blank box**: removing every tile leaves a slim "no sensors" pill so the
+  window still has a body to right-click (Hide / Configure) instead of an unexplained floating rectangle.
 - **Missing reading renders as `—`**, never 0 — a HUD that invents an idle-looking 0 W CPU is worse than a blank tile.
 - Position restore needs **bounded self-correction**: the WM re-places borderless windows *after* `Show()` returns, so
   `OnPositionChanged` nudges back up to 4 times, then accepts the WM's choice and saves that instead of looping forever.

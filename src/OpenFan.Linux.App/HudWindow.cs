@@ -125,6 +125,25 @@ public sealed class HudWindow : Window
         _shown.Clear();
         _grid.Children.Clear();
 
+        // Removing every tile must not leave a blank rounded box floating on the desktop. The strip
+        // stays (so right-click still reaches Hide/Configure) but says what it is.
+        if (tiles.Count == 0)
+        {
+            _grid.Columns = 1;
+            _grid.Children.Add(new Border
+            {
+                Width = 132, Height = 40, Margin = new Thickness(4),
+                Padding = new Thickness(10, 6, 10, 6), CornerRadius = new CornerRadius(7),
+                Background = new SolidColorBrush(Color.Parse("#2C363D")),
+                Child = new TextBlock
+                {
+                    Text = "no sensors", FontSize = 12, Foreground = new SolidColorBrush(Color.Parse("#8FA0AA")),
+                    VerticalAlignment = VerticalAlignment.Center,
+                },
+            });
+            return;
+        }
+
         var columns = HudLayout.ClampColumns(_app.Settings.HudColumns);
         _grid.Columns = tiles.Count == 0 ? 1 : Math.Min(columns, tiles.Count);
 
