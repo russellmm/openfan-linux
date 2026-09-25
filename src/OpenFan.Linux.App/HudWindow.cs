@@ -91,11 +91,43 @@ public sealed class HudWindow : Window
     {
         var s = _app.Settings;
         if (s.HudX is not int x || s.HudY is not int y) return;
-        var want = new PixelPoint(Math.Max(x, 0), Math.Max(y, 0));
+
+        var want = ClampToScreens(x, y, s);
         if (Position == want) return;
         _applyingPosition = true;
         Position = want;
         _applyingPosition = false;
+    }
+
+    /// <summary>
+    /// Resolves the saved point against the screens that exist *now*. A strip parked on a monitor that has
+    /// since been unplugged would otherwise return at coordinates nobody can see, and an invisible window
+    /// cannot be dragged back — which looks like a broken overlay rather than a changed desktop. When the
+    /// clamp moves it, the corrected position is saved so we do not re-fight this on every start.
+    /// </summary>
+    private PixelPoint ClampToScreens(int x, int y, AppSettings settings)
+    {
+        var screens = Screens?.All;
+        if (screens is null || screens.Count == 0)
+            return new PixelPoint(Math.Max(x, 0), Math.Max(y, 0));   // headless: pass through
+
+        var bounds = screens
+            .Select(sc => new HudLayout.ScreenBounds(sc.Bounds.X, sc.Bounds.Y, sc.Bounds.Width, sc.Bounds.Height))
+            .ToList();
+
+        // Before the first layout Bounds is unset; assume a strip-wide box so the clamp still does
+        // something sensible rather than treating the window as a pixel wide.
+        var w = Bounds.Width > 1 ? Bounds.Width : 300;
+        var h = Bounds.Height > 1 ? Bounds.Height : 200;
+
+        var (nx, ny) = HudLayout.ClampIntoBounds(x, y, w, h, bounds);
+        if (nx != x || ny != y)
+        {
+            settings.HudX = nx;
+            settings.HudY = ny;
+            _app.Save();
+        }
+        return new PixelPoint(nx, ny);
     }
 
     /// <summary>Call on every refresh tick (FanApp.Ticked). Cheap when nothing changed.</summary>
@@ -257,6 +289,17 @@ public sealed class HudWindow : Window
         }
         menu.Items.Add(columns);
 
+        var reposition = new MenuItem { Header = "Reset position (top-left)" };
+        reposition.Click += (_, _) =>
+        {
+            _app.Settings.HudX = 24;
+            _app.Settings.HudY = 60;
+            _app.Save();
+            MoveToSavedPosition();
+            App.HudUiSync?.Invoke();
+        };
+        menu.Items.Add(reposition);
+
         var hide = new MenuItem { Header = "Hide overlay" };
         hide.Click += (_, _) =>
         {
@@ -273,17 +316,18 @@ public sealed class HudWindow : Window
     private void RestoreGeometry()
     {
         var s = _app.Settings;
-        if (s.HudX is int x && s.HudY is int y)
-            Position = new PixelPoint(Math.Max(x, 0), Math.Max(y, 0));
-        else
-            Position = new PixelPoint(24, 60);   // below the top panel, out of the way of the menu
+        Position = s.HudX is int x && s.HudY is int y
+            ? ClampToScreens(x, y, s)
+            : new PixelPoint(24, 60);   // below the top panel, out of the way of the menu
     }
 
     private void OnPositionChanged(object? sender, PixelPointEventArgs e)
     {
         if (_applyingPosition) return;   // our own move
 
-        var saved = _app.Settings.HudX is int x && _app.Settings.HudY is int y ? new PixelPoint(x, y) : (PixelPoint?)null;
+        var saved = _app.Settings.HudX is int sx && _app.Settings.HudY is int sy
+            ? ClampToScreens(sx, sy, _app.Settings)
+            : (PixelPoint?)null;
 
         // The WM re-places borderless windows shortly after mapping; correct it a few times, then stop
         // fighting and treat the WM's choice as the truth worth saving.

@@ -88,6 +88,49 @@ public class HudTests
         HudLayout.ClampColumns(raw).Should().Be(expected);
 
     [Fact]
+    public void Off_screen_saved_position_comes_back_grabbable()
+    {
+        // Strip parked on a monitor that no longer exists: 1600x900 desktop, saved at x=2600.
+        var screens = new[] { new HudLayout.ScreenBounds(0, 0, 1600, 900) };
+
+        var (x, y) = HudLayout.ClampIntoBounds(2600, 40, 292, 210, screens);
+
+        x.Should().BeLessThanOrEqualTo(1600 - 24, "some of the strip must land on screen");
+        x.Should().BeGreaterThan(1600 - 292, "but it should hug the right edge, not teleport to the left");
+        y.Should().Be(40, "an in-bounds axis is left alone");
+    }
+
+    [Fact]
+    public void Negative_saved_position_is_pulled_back_not_left_off_the_top_left()
+    {
+        var screens = new[] { new HudLayout.ScreenBounds(0, 0, 1920, 1080) };
+        var (x, y) = HudLayout.ClampIntoBounds(-400, -300, 152, 144, screens);
+
+        x.Should().BeGreaterThanOrEqualTo(0);
+        y.Should().BeGreaterThanOrEqualTo(0);
+    }
+
+    [Fact]
+    public void Positions_on_a_second_monitor_are_left_exactly_where_the_user_put_them()
+    {
+        // Two screens side by side: the right one starts at x=1920. Nothing may shift.
+        var screens = new[]
+        {
+            new HudLayout.ScreenBounds(0, 0, 1920, 1080),
+            new HudLayout.ScreenBounds(1920, 0, 2560, 1440),
+        };
+
+        HudLayout.ClampIntoBounds(3200, 700, 152, 144, screens).Should().Be((3200, 700));
+    }
+
+    [Fact]
+    public void Clamp_survives_unknown_screens_instead_of_hiding_the_strip()
+    {
+        // Headless / no screen info must not become "park the overlay at 0,0 forever".
+        HudLayout.ClampIntoBounds(812, 344, 152, 144, []).Should().Be((812, 344));
+    }
+
+    [Fact]
     public void Overlay_settings_round_trip_and_order_is_the_list_order()
     {
         var s = new AppSettings

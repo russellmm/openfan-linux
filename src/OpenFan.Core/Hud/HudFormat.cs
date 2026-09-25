@@ -93,8 +93,41 @@ public static class HudLayout
 {
     public const int MaxColumns = 4;
 
+    /// <summary>How much of the strip must stay on screen after clamping — enough to grab and drag it.</summary>
+    public const double MinVisibleFraction = 0.35;
+
     /// <summary>Legal tiles-per-row. Anything silly (0, negative, absurd) collapses to a single column.</summary>
     public static int ClampColumns(int columns) => columns is >= 1 and <= MaxColumns ? columns : 1;
+
+    /// <summary>A screen's pixel bounds, as plain data so the clamp is testable without a display server.</summary>
+    public readonly record struct ScreenBounds(int X, int Y, int Width, int Height);
+
+    /// <summary>
+    /// Pulls a saved overlay position back onto the visible desktop.
+    /// </summary>
+    /// <remarks>
+    /// The motivating case on a workstation: the strip is parked on a second monitor, that monitor gets
+    /// unplugged (or its arrangement changes), and GNOME reclaims the coordinates — so the window returns
+    /// at x=2600 of a 1920-wide desktop. Invisible windows cannot be dragged back, which reads as "the
+    /// overlay is broken" rather than "your layout changed". Keeps MinVisibleFraction of the strip on
+    /// screen so it stays grabbable; with no screens known (headless tests) the position passes through.
+    /// </remarks>
+    public static (int X, int Y) ClampIntoBounds(
+        int x, int y, double width, double height, IReadOnlyList<ScreenBounds> screens)
+    {
+        if (screens.Count == 0) return (x, y);
+
+        int left = screens.Min(s => s.X), top = screens.Min(s => s.Y);
+        int right = screens.Max(s => s.X + s.Width), bottom = screens.Max(s => s.Y + s.Height);
+
+        // Keep enough of the strip visible to click and drag it off the edge.
+        var keepX = Math.Max(24, width * MinVisibleFraction);
+        var keepY = Math.Max(20, height * MinVisibleFraction);
+
+        var nx = Math.Clamp(x, left, Math.Max(left, right - keepX));
+        var ny = Math.Clamp(y, top, Math.Max(top, bottom - keepY));
+        return ((int)nx, (int)ny);
+    }
 }
 
 /// <summary>Colour helpers for tiles the user colours themselves.</summary>

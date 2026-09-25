@@ -212,6 +212,12 @@ renderer, `TrayHudPage.cs` is the picker (partial class of MainWindow), `HudColo
 - **Idle cost measured**, not assumed: 1.04 s vs 0.91 s CPU per 30 s wall with the overlay on vs off (~0.03 % of one
   core). Closing the main window hides it (`e.Cancel = true` + `Hide()`), so the DispatcherTimer keeps ticking and the
   overlay keeps updating from the tray process.
+- **Position restore is screen-aware**: the saved point is resolved against the screens that exist *now*
+  (`HudLayout.ClampIntoBounds`, pure + tested). A strip parked on a monitor that has since been unplugged would come
+  back at coordinates nobody can see, and an invisible window cannot be dragged back — which reads as a broken overlay
+  rather than a changed desktop. At least 35 % stays on screen, and the corrected position is saved so it does not
+  re-fight on every boot. Right-click ▸ **Reset position (top-left)** is the manual escape hatch.
+  Lab-verified: saved `5000,4000` on a 1600x1000 display → landed at `1495,930` with ~105 px visible; reset → `24,60`.
 - **Empty state is a labelled strip, not a blank box**: removing every tile leaves a slim "no sensors" pill so the
   window still has a body to right-click (Hide / Configure) instead of an unexplained floating rectangle.
 - **Missing reading renders as `—`**, never 0 — a HUD that invents an idle-looking 0 W CPU is worse than a blank tile.
@@ -295,6 +301,9 @@ subgroups · `e00092d` PageUp/Down scroll · `7c4808d` Sensors page + aliases ·
   `ppt_bios_mw` stays 295000, and `journalctl -b -u hsmp-control-apply.service` should show it ran instead of skipping.
 
 **Verification still open (say so honestly if asked what is proven):**
+0. **Overlay on real GNOME (mutter), not just the lab's Openbox**: always-on-top stacking against ordinary windows and
+   drag feel are lab-verified only; the user opted to tick *Tray ▸ Show the desktop overlay* themselves rather than let
+   an agent edit their live profile, so this is deliberately outstanding, not forgotten.
 1. **Sub-200 W behaviour** on this board: the window allows 100 W but nobody has confirmed the SMU accepts it; readback
    would report a clamp, so the worst case is visible rather than silent.
 2. Optional: *reset to BIOS default* button on the CPU tab — `cpupower default` exists in the protocol and is tested;
