@@ -79,6 +79,9 @@ public sealed class App : Application
         ShowHud(visible: visible);
     }
 
+    /// <summary>Tray-page edits apply immediately — the overlay is its own preview.</summary>
+    public void HudRefreshNow() => _hud?.Refresh();
+
     private void ShowHud(bool visible)
     {
         if (!visible)

@@ -35,6 +35,11 @@ Threadripper 9970X + RTX 5060 Ti / 2× RTX PRO 6000 Blackwell (driver 595.x).
 - **Sensors page** — full sensor inventory grouped by source (CPU / GPU / Motherboard / Chipset EC / AMD HSMP /
   NVMe / Network), collapsible per-device subgroups (NVMe drives labeled with their model), and friendly renaming:
   aliases flow into every curve dropdown while tooltips keep the original hardware name + id.
+- **Desktop overlay (HUD)** — an always-on-top, borderless strip of live sensor tiles, HWiNFO64-style. Configured on
+  the **Tray** page: pick any temperature sensor plus CPU socket power / cap and each GPU's board power, give every
+  tile its own background colour (eight curated swatches or a full RGB picker with hex paste), order them, choose tiles
+  per row. Text colour is derived from the tile colour's luminance so it stays readable whatever you pick; drag it
+  anywhere and it remembers where you left it. Read-only — the overlay never writes anything.
 - Quiet by default: monitor-only until you tick **Apply curves**; exact pre-takeover PWM enable mode restored on exit.
 
 ## Architecture
@@ -43,7 +48,7 @@ Threadripper 9970X + RTX 5060 Ti / 2× RTX PRO 6000 Blackwell (driver 595.x).
 src/OpenFan.Core/         portable engine: curves, control loop, settings store (no Linux deps)
 src/OpenFan.Linux.Hw/     hwmon sysfs backend, NVML backend (+telemetry), helper socket client
 src/OpenFan.Linux.Helper/ privileged daemon: fan writes + GPU/CPU power limits over /run/openfan/helper.sock
-src/OpenFan.Linux.App/    Avalonia UI (pages, calibration window, tray)
+src/OpenFan.Linux.App/    Avalonia UI (pages, calibration window, desktop overlay, tray)
 ```
 
 Privilege model: PWM write access via a udev rule (`openfan` group); NVML GPU writes go through
@@ -150,8 +155,10 @@ available; never force a different CPU model mapping.
   than a wrong number, but nobody has confirmed SMU behaviour down there.
 - **TDP and TjMax cannot be changed from Linux at all** on this firmware while Secure Boot is enabled — see the
   section above. They are displayed, never written.
-- Theme/Tray pages remain light; Settings covers general/hidden/system options and autostart, and sleep/resume
-  restore is implemented via logind (see STATUS.md §4).
+- The overlay shows values at whole-number precision only — it is a glanceable strip, not a logger; nothing is
+  recorded or graphed.
+- Theme page remains light. Settings covers general/hidden/system options and autostart, and sleep/resume restore is
+  implemented via logind (see STATUS.md §4).
 
 ## Status
 

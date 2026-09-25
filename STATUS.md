@@ -10,7 +10,7 @@ Flat/Graph/Mix curves, mirroring the Windows **OpenFan** reference (design scree
 controls the **CPU socket power limit (PPT)** on Threadripper via HSMP — a power knob on the CPU tab, unrelated to
 fan behaviour (see §4).
 Pages: **Home** (fan Controls + Curves library), **CPU** (socket telemetry + PPT editor), **GPUs** (per-card
-telemetry + power limits), **Sensors** (full inventory, grouped, friendly renaming), Theme/Tray stubs, Settings
+telemetry + power limits), **Sensors** (full inventory, grouped, friendly renaming), Theme stub, **Tray** (desktop-overlay setup), Settings
 (general / hidden / system incl. conflict detector + autostart), About. Avalonia 11.2.3 / .NET 8, FluentTheme Dark.
 
 ## 2. Build / run / test (agent workflow — agent rebuilds + restarts, user just looks)
@@ -172,13 +172,39 @@ means Setup. Full write-up: [`tools/hsmp-control/README.md`](tools/hsmp-control/
   CompositeActuator, InventoryMerger, NvmlHelperClient, HelperProtocol/Server/Sessions (`IGpuPowerWriter`,
   `ICpuPowerWriter`), HsmpPowerReader (read-only telemetry), CpuPowerControl, CbsSetupReader, HsmpLimitConfig.
 - `src/OpenFan.Linux.App/` — MainWindow.axaml(.cs) (~2700 lines: nav rail; Home cards+curves; CPU page builder;
-  GPUs page builder; Sensors page builder), GraphEditorWindow, CalibrationWindow, FanApp, tray.
+  GPUs page builder; Sensors page builder), GraphEditorWindow, CalibrationWindow, HudWindow + HudColorDialog, TrayHudPage, FanApp, tray.
 - `tools/hsmp-control/` — vendored C CLI (`hsmp_control.c`), systemd unit, `install-persistence.sh`, `test-cli.sh`.
 
 **UI conventions**
 - Tokens: accent `#F0A03C`, window `#171B1F`, card `#1E2429`, border `#2C363D`, secondary `#8FA0AA`,
   nav rail `#101416`, FAB bg `#4A5D68`, VRAM bar `#4FC3F7`, ok-green `#7BC97B`, warn-amber `#E5C07B`, bad-red `#EF6B6B`.
 - Styles: `RadioButton.nav` (orange bar), `Button.accent`, `Button.fab`, `TextBox.cardname` quiet-affordance rename box.
+
+### Desktop overlay (HUD) — HWiNFO64-style sensor strip (`78bca67` + tray picker)
+
+Always-on-top borderless window of live tiles; configured on the **Tray** page. Pure logic lives in
+`OpenFan.Core/Hud/HudFormat.cs` (+`HudTheme`, `HudDefaults`) so it is testable without a display; `HudWindow` is a
+renderer, `TrayHudPage.cs` is the picker (partial class of MainWindow), `HudColorDialog.cs` the RGB/hex chooser.
+
+- **Why not top-panel tray items** — settled with evidence, do not re-explore: Avalonia's `TrayIcon` exposes only
+  Icon/ToolTipText/Menu/IsVisible/Command (no text at all), and Ubuntu's `ubuntu-appindicators` extension renders panel
+  text *only* from the legacy `XAyatanaLabel` SNI property (`appIndicator.js` `get label()` → `_proxy.XAyatanaLabel`,
+  drawn by `indicatorStatusIcon.js:_updateLabel`) in a themed colour. So per-sensor background colours are impossible
+  in the panel without writing our own StatusNotifierItem over D-Bus or shipping a Shell extension.
+- **Source ids** are either real sensor ids from the same inventory the curves use, or synthetic `cpu:power:w`,
+  `cpu:pptcap:w`, `cpu:temp:c`, `nvml:<uuid>:power:w`. GPU power is deliberately NOT in the readings dictionary
+  (curves never drive off wattage), so those tiles resolve through `NvmlBackend.SnapshotAll()`.
+- **Units are inferred from the id, per backend**: hwmon `:fan:` is RPM while NVML `:fan:` is % and publishes RPM as
+  `:tach:`. Getting this wrong crossed fan % onto a tach tile — covered by `HudTests`.
+- **Text colour is derived**, never chosen: BT.601 luminance of the user's background (`HudTheme.TextColorFor`), so a
+  pale tile gets dark text. A test asserts no palette entry yields text matching its own background.
+- **Cost discipline**: repaint only when a tile's *formatted* string changed at shown precision; tile visuals rebuild
+  only on a settings-signature change; one `CpuMonitor.Read()` shared by all CPU tiles per refresh (three tiles would
+  otherwise triple sysfs traffic for the same sample). Refresh is driven by `FanApp.Ticked`, so the overlay and the
+  control loop always show the same sample.
+- **Missing reading renders as `—`**, never 0 — a HUD that invents an idle-looking 0 W CPU is worse than a blank tile.
+- Position restore needs **bounded self-correction**: the WM re-places borderless windows *after* `Show()` returns, so
+  `OnPositionChanged` nudges back up to 4 times, then accepts the WM's choice and saves that instead of looping forever.
 
 **Gotchas catalog (all personally verified)**
 - Avalonia **Grid does NOT auto-place children** — every child needs explicit `Grid.Column` or they stack on top of
@@ -200,6 +226,12 @@ means Setup. Full write-up: [`tools/hsmp-control/README.md`](tools/hsmp-control/
 - `HelperServer` shutdown: a session's pending `ReadLineAsync(_cts.Token)` throws `OperationCanceledException` when
   the service stops with a client attached. That must be caught (and teardown wrapped in `finally`) or
   `DisposeAsync` rethrows and skips socket removal — fixed, regression test in `CpuPowerControlTests.cs`.
+- Avalonia `ToolTip` is attached-only: `ToolTip.SetTip(ctrl, "...")`. The WPF-style initializer
+  `ToolTip = { Tip = "..." }` does not compile. Likewise `ColorView`/`ColorPicker` are **not** in Avalonia core —
+  they ship in a separate package with theme-resource requirements; the HUD colour dialog is built from three RGB
+  sliders + hex box instead, which also avoids offering an alpha channel a solid tile cannot use.
+- headless-lab `hd status` reports **+0+0 for borderless windows** even when they are correctly placed — read
+  `xwininfo -id <win> | grep Absolute` for the truth. Cost me a false "position restore is broken" conclusion.
 - Unit-test flakiness was real, not environmental: it came from the above. If a socket test flakes, suspect the
   product code before adding retries.
 
@@ -221,10 +253,17 @@ P-State · Fan % · Fan RPM (— on 595) · Clocks G/S/M, PCIe gen×width + RX/T
 Chipset-ASUS EC / AMD HSMP / Storage (NVMe) / Network / Other via `SensorGroup()` chip mapping; sections with several
 devices get collapsible ▾/▸ per-device headers (NVMe labeled with model from sysfs). Click-to-rename → `SensorAliases`;
 aliases drive every sensor dropdown app-wide (curve cards rebuild on commit); tooltip = original name + group + id.
+**Tray** (`78bca67` + this pass) — desktop-overlay setup: enable checkbox (seeds CPU power/temp + each GPU's
+power/temp on first enable), tiles-per-row, and a tile list with colour swatch (8-swatch menu or full RGB dialog with
+hex paste), unit, ↑/↓ ordering and ✕ removal. Every edit applies to the live overlay immediately — the overlay is its
+own preview, so there is no mock-up to drift. Tray icon itself unchanged: Open / Apply curves / Exit.
 **Calibration window** — see §6 of previous revision / commit `f62c927`: live slider, auto-step sweep, avoid flags,
 validation trio gating Ok, get-or-create Cfg() rows.
 
 ## 6. Recent commits (newest first)
+overlay tray picker UI + docs pass (this commit) · `78bca67` desktop overlay (HUD): always-on-top sensor tiles,
+user-chosen colours, headless-testable formatting/contrast · `cc8f717` record persistence verification ·
+`53fce3f` docs brought in line with implementation · `ba917dc` reproducible launcher installer ·
 `b60265f` vendored hsmp-control + persistence installer · `49546a8` CPU socket power control (PPT settable,
 TDP/TjMax read-only, checkbox policy fix, helper shutdown fix) · `d3c322e` CPU page labels honour HSMP semantics ·
 `e96980c` HsmpPowerReader extraction + `--cpu-power` · `2368667` CPU page RAM · `0a3d0eb` Sensors fan-% + collapsible

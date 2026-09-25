@@ -315,7 +315,8 @@ Same JSON shape as Windows where possible (`controls`, `curves`, `applyCurves`, 
 | *(Windows: covered by HWiNFO, no page)* | **CPU page** — socket telemetry (temp, draw, PPT cap, TDP, TjMax, load, frequency, RAM) + PPT limit editor with *keep after reboot*. See §4.6 |
 | Settings | Start at login (`~/.config/autostart/openfan.desktop` or systemd --user), start minimized, sensor delay, nicknames, Edit sources (hwmon chips on/off, NVML on/off), Hidden, Plugins (hwmon list **is** shown — unlike LHM it is usually small enough; cap at ~80 rows with filter) |
 | Theme | Dark + accent picker; **this port's default accent is `#F0A03C`** (`AccentHex.Default`), not the Windows `#E24B4B` |
-| Tray | StatusNotifierItem: Open / Exit |
+| Tray | StatusNotifierItem (Open / Apply curves / Exit) **plus** the desktop-overlay setup: sensor picker, per-tile colour, ordering, tiles-per-row |
+| Overlay (HUD) | Borderless always-on-top strip of live tiles: CPU socket power/cap/temp, per-GPU power/temp, any hwmon temperature; user-chosen background per tile, text colour derived for contrast, drag-to-position with the position persisted |
 | About | OpenFan version; **hwmon driver names**; NVML driver version; **"Check for OpenFan updates" (GitHub) is NOT implemented** — no release/API call exists in this port. No LHM nuget check. Optional: kernel version + `pwm` ACL status |
 
 **Edit sources** on Linux = enable/disable individual hwmon chips (by `name`) + NVML. Not LHM Motherboard/CPU checkboxes.
@@ -493,7 +494,7 @@ cards assign **library curves by name** (Monitor | curve…) — one curve share
 | Kernel k10temp lacks Turin CCDs | Med | Use Tctl; document kernel version |
 | NVML SetFan unsupported on Linux driver | High for PRO 6000s | Spike; monitor-only + message |
 | udev ACL not applied until replug | Med | Document log out/in; `udevadm trigger` |
-| Avalonia tray broken on GNOME | Med | Fallback: keep window; StatusNotifierItem library |
+| Avalonia tray broken on GNOME | Med | **Resolved + documented**: the tray item works (icon + menu). Panel *text* is not achievable — Avalonia's `TrayIcon` exposes no label and Ubuntu's appindicator extension renders only the legacy `XAyatanaLabel` in a themed colour, so per-sensor colours are impossible there. The desktop overlay delivers that instead; do not re-explore tray labels (STATUS.md §4) |
 | Fighting CoolerControl | High | Conflict detector; Apply default off |
 | Writing pwm every 1 s wears nothing but looks “busy” | Low | Accept; needed vs EC |
 | Sharing JSON with Windows | Low | Don’t promise board id mapping |

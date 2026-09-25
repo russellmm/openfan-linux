@@ -120,6 +120,12 @@
         <StackPanel x:Name="SensorsContent" Spacing="14" Margin="0,0,80,0" />
       </ScrollViewer>
 
+      <!-- Tray: desktop overlay sensor picker (populated in code) -->
+      <ScrollViewer x:Name="TrayPanel" Grid.Row="1" Grid.RowSpan="2" IsVisible="False"
+                    HorizontalScrollBarVisibility="Disabled">
+        <StackPanel x:Name="TrayContent" Spacing="14" Margin="0,0,80,0" />
+      </ScrollViewer>
+
       <!-- Settings: general / hidden controls / system (populated in code) -->
       <ScrollViewer x:Name="SettingsPanel" Grid.Row="1" Grid.RowSpan="2" IsVisible="False"
                     HorizontalScrollBarVisibility="Disabled">

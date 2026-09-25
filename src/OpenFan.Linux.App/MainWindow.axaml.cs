@@ -132,11 +132,12 @@ public sealed partial class MainWindow : Window
             BuildSettingsPage(); // fresh state each visit (helper status, conflicts, hidden list)
         ThemePanel.IsVisible = page == "theme";
         AboutPanel.IsVisible = page == "about";
+        TrayPanel.IsVisible = page == "tray";
         if (page == "theme")
             BuildThemePage();
         if (page == "about")
             BuildAboutPage();
-        StubPage.IsVisible = page is not ("home" or "cpu" or "gpus" or "sensors" or "settings" or "theme" or "about");
+        StubPage.IsVisible = page is not ("home" or "cpu" or "gpus" or "sensors" or "settings" or "theme" or "about" or "tray");
 
         (PageTitle.Text, PageSubtitle.Text) = page switch
         {
@@ -144,7 +145,7 @@ public sealed partial class MainWindow : Window
             "gpus" => ("GPUs", GpuSubtitle()),
             "sensors" => ("Sensors", SensorsSubtitle()),
             "theme" => ("Theme", "accent color, applied live"),
-            "tray" => ("Tray", ""),
+            "tray" => ("Tray", "desktop overlay sensors"),
             "settings" => ("Settings", "app preferences"),
             "about" => ("About", ""),
             _ => ("Home", _homeSubtitle),
@@ -153,7 +154,6 @@ public sealed partial class MainWindow : Window
         StubPage.Text = page switch
         {
             "theme" => "Theme options arrive with the Phase 5 polish pass.",
-            "tray" => "Tray is active now: closing the window hides to tray (curves keep applying);\ntray Exit restores every owned fan. Per-icon options pending.",
             "settings" => "Settings — disabled hwmon chips, refresh interval, start-at-login — land in Phase 5.",
             "about" => "OpenFan Linux — motherboard + NVIDIA fan control for Ubuntu.\nMIT licensed · curve engine shared with Windows OpenFan.",
             _ => "",
@@ -165,6 +165,8 @@ public sealed partial class MainWindow : Window
             EnsureGpuPage();
         if (page == "sensors")
             EnsureSensorsPage();
+        if (page == "tray")
+            EnsureHudPage();
     }
 
     // ---- CPU page ------------------------------------------------------------
