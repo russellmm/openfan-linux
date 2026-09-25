@@ -239,6 +239,11 @@ public sealed class FanApp : IDisposable
         }
     }
 
+    /// <summary>Latest reading for a sensor id from the same dictionary the control loop evaluates
+    /// curves against (populated by <see cref="Tick"/>). Null = unknown id or no reading this tick.</summary>
+    public double? SensorValue(string sensorId) =>
+        _readings.TryGetValue(sensorId, out var v) ? v : null;
+
     public void Tick()
     {
         RefreshInventory();

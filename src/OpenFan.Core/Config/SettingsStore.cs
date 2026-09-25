@@ -32,6 +32,22 @@ public sealed class AppSettings
     [JsonIgnore]   // derived from the two settings above; persisting it would only invite drift
     public bool CpuLimitShouldReassertOnStart => CpuPowerLimitW is not null && CpuKeepAfterReboot;
 
+    // Desktop overlay (HUD): borderless always-on-top strip of sensor tiles, HWiNFO64-style. The panel
+    // tray cannot do this — Avalonia's TrayIcon exposes no text/label property, and Ubuntu's appindicator
+    // extension renders only the legacy XAyatanaLabel with themed colour, so per-tile background colours
+    // are impossible there (STATUS.md §4 records the evidence).
+    public bool HudEnabled { get; set; }
+
+    /// <summary>Ordered tiles; list order IS display order, so no separate index field to drift.</summary>
+    public List<HudTileSettings> HudTiles { get; set; } = [];
+
+    /// <summary>Tiles per row (1 = single column). The UI clamps this; 0/negative falls back to 1.</summary>
+    public int HudColumns { get; set; } = 1;
+
+    // Overlay geometry: restored on launch, saved when the user drags it.
+    public int? HudX { get; set; }
+    public int? HudY { get; set; }
+
     // Window geometry (Linux app): restored on launch, saved when the window moves/resizes/closes.
     public int? WindowX { get; set; }
     public int? WindowY { get; set; }
@@ -53,6 +69,23 @@ public sealed class AppSettings
     /// <summary>User card order (control ids). Ids absent from the list keep their natural position.</summary>
     public List<string> ControlOrder { get; set; } = [];
     public List<CurveSettings> Curves { get; set; } = [];
+}
+
+/// <summary>
+/// One overlay tile. <paramref name="SourceId"/> is either a normal sensor id ("hwmon:k10temp:0:temp:Tctl",
+/// "nvml:&lt;uuid&gt;:temp:core") or a synthetic power id the app resolves itself ("cpu:power:w",
+/// "cpu:pptcap:w", "nvml:&lt;uuid&gt;:power:w"), so the HUD can show socket/board power that the curve-facing
+/// readings dictionary does not carry.
+/// </summary>
+public sealed class HudTileSettings
+{
+    public string SourceId { get; set; } = "";
+
+    /// <summary>User override; empty means derive a short label from the source id.</summary>
+    public string? Label { get; set; }
+
+    /// <summary>Tile background. Text colour is derived for contrast (HudTheme.TextColorFor).</summary>
+    public string ColorHex { get; set; } = AccentHex.Default;
 }
 
 public sealed class SourceSettings

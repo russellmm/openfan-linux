@@ -6,6 +6,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using OpenFan.Core.Hud;
 
 namespace OpenFan.Linux.App;
 
@@ -35,6 +36,7 @@ public sealed class App : Application
             };
 
             SetupTray(lifetime);
+            SetupHud();
         }
 
         base.OnFrameworkInitializationCompleted();
@@ -42,6 +44,54 @@ public sealed class App : Application
 
     /// <summary>MainWindow calls this when its header Apply-curves checkbox changes.</summary>
     public static Action? TrayApplySync { get; set; }
+
+    /// <summary>HudWindow's right-click ▸ Configure: bring the main window forward.</summary>
+    public static Action? ShowMainWindowRequested { get; set; }
+
+    private HudWindow? _hud;
+
+    /// <summary>
+    /// Desktop overlay. Created lazily and refreshed from the existing control-loop tick, so the HUD
+    /// and the fan curves always read the same sample rather than two timers drifting apart.
+    /// </summary>
+    private void SetupHud()
+    {
+        Hardware!.Ticked += () => _hud?.Refresh();
+        ShowMainWindowRequested = () =>
+        {
+            MainWin?.Show();
+            MainWin?.Activate();
+        };
+        if (Hardware.Settings.HudEnabled) ShowHud(visible: true);
+    }
+
+    /// <summary>Tray tab ▸ Overlay checkbox. Persists the choice so the overlay returns next session.</summary>
+    public void SetHudVisible(bool visible)
+    {
+        if (visible && Hardware!.Settings.HudTiles.Count == 0)
+        {
+            Hardware.Settings.HudTiles = HudDefaults.Seed(
+                Hardware.Nvml.SnapshotAll().Select(g => new HudDefaults.GpuRef(g.Uuid, g.Index, g.Name)).ToList());
+        }
+
+        Hardware.Settings.HudEnabled = visible;
+        Hardware.Save();
+        ShowHud(visible: visible);
+    }
+
+    private void ShowHud(bool visible)
+    {
+        if (!visible)
+        {
+            _hud?.Hide();
+            return;
+        }
+
+        _hud ??= new HudWindow(Hardware!);
+        if (!_hud.IsVisible) _hud.Show();
+        _hud.ApplySavedPosition();   // the WM re-places borderless windows at map time
+        _hud.Refresh();
+    }
 
     private void SetupTray(IClassicDesktopStyleApplicationLifetime lifetime)
     {
