@@ -212,6 +212,11 @@ renderer, `TrayHudPage.cs` is the picker (partial class of MainWindow), `HudColo
 - **Idle cost measured**, not assumed: 1.04 s vs 0.91 s CPU per 30 s wall with the overlay on vs off (~0.03 % of one
   core). Closing the main window hides it (`e.Cancel = true` + `Hide()`), so the DispatcherTimer keeps ticking and the
   overlay keeps updating from the tray process.
+- **The rebuild signature must hash everything `Rebuild()` reads.** It hashed only the tiles, so changing tiles-per-row
+  from the Tray page saved the setting and left the strip laid out the old way — a silent no-op. The overlay's own menu
+  masked it because that path nulls `_signature` before refreshing. Columns and scale are in the hash now
+  (`{columns}x{scale}|…`).
+
 - **Position restore is screen-aware**: the saved point is resolved against the screens that exist *now*
   (`HudLayout.ClampIntoBounds`, pure + tested). A strip parked on a monitor that has since been unplugged would come
   back at coordinates nobody can see, and an invisible window cannot be dragged back — which reads as a broken overlay
