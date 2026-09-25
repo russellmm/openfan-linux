@@ -405,7 +405,7 @@ public partial class MainWindow
         var temps = new MenuItem { Header = "Temperatures" };
         var tempItems = _app.Inventory.Where(i => i.Kind == HardwareKind.Temperature).ToList();
         var duplicateHeaders = tempItems
-            .Select(i => TempHeader(i, NicknameOrName(i)))
+            .Select(i => DriveHeader(i, NicknameOrName(i)) ?? TempHeader(i, NicknameOrName(i)))
             .GroupBy(h => h)
             .Where(g => g.Count() > 1)
             .Select(g => g.Key)
@@ -415,11 +415,16 @@ public partial class MainWindow
             var friendly = NicknameOrName(item);
             // Several chips expose the same generic label ("Composite", "Sensor 1"), so name alone cannot pick
             // one out. Prefix the chip unless the name already carries it (GPUs do: "…01:00.0 Core").
-            var header = TempHeader(item, friendly);
+            var header = DriveHeader(item, friendly) ?? TempHeader(item, friendly);
             // Same plain label on several chips ("Composite" on every NVMe drive): widen to the hwmon
-            // instance so the entries are actually distinguishable.
+            // instance so entries are distinguishable — but keep the model, which is the informative part.
             if (duplicateHeaders.Contains(header))
-                header = $"{HudDescribe.ChipInstance(item.Id)} · {friendly}";
+            {
+                var chipInstance = HudDescribe.ChipInstance(item.Id);
+                header = DriveModelOf(item) is { Length: > 0 } model
+                    ? $"{chipInstance} {friendly} · {model}"
+                    : $"{chipInstance} · {friendly}";
+            }
             temps.Items.Add(AddItem(header, item.Id, null));
         }
         if (temps.Items.Count == 0)
@@ -433,6 +438,34 @@ public partial class MainWindow
         _app.Settings.SensorNicknames.TryGetValue(item.Id, out var nick) && !string.IsNullOrWhiteSpace(nick)
             ? nick
             : item.Name;
+
+    /// <summary>
+    /// Label for an NVMe sensor: model + PCI address, reusing the map the Sensors page headings are built
+    /// from so the two screens can never disagree about what a drive is called. PCI leads because menu
+    /// width truncates from the right and this box has two drives of the same model.
+    /// </summary>
+    /// <summary>Drive model for an NVMe sensor id, "" when unknown or not a drive sensor.</summary>
+    private static string DriveModelOf(HardwareItem item)
+    {
+        var parts = item.Id.Split(':');
+        if (parts.Length < 3 || parts[0] != "hwmon" || parts[1] != "nvme") return "";
+
+        var key = "nvme:" + parts[2];
+        var model = NvmeModel(key);
+        return model == key ? "" : model;
+    }
+
+    private static string? DriveHeader(HardwareItem item, string friendly)
+    {
+        var parts = item.Id.Split(':');
+        if (parts.Length < 3 || parts[0] != "hwmon" || parts[1] != "nvme") return null;
+
+        var key = "nvme:" + parts[2];
+        var model = NvmeModel(key);
+        if (model == key) return null;   // unknown drive — fall back to the chip rule
+
+        return HudDescribe.DeviceLabel(friendly, NvmePciBus(key), model);
+    }
 
     /// <summary>Menu label for a temperature sensor: chip-qualified unless the name already says it.</summary>
     private static string TempHeader(HardwareItem item, string friendly)
@@ -453,7 +486,8 @@ public partial class MainWindow
     private MenuItem AddItem(string header, string sourceId, string? label)
     {
         var already = _app.Settings.HudTiles.Any(t => t.SourceId == sourceId);
-        var item = new MenuItem { Header = already ? header + "  ✓" : header, IsEnabled = !already };
+        // MenuText: "_" is an access-key marker in menu headers and would eat the underscore in WD_BLACK.
+        var item = new MenuItem { Header = MenuText(already ? header + "  ✓" : header), IsEnabled = !already };
         item.Click += (_, _) =>
         {
             // Next unused palette colour, so a strip of tiles stays distinguishable without the user

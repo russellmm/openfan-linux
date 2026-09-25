@@ -158,6 +158,18 @@ public static class HudDescribe
     /// enough — and unlike the GPU PCI bus, the hwmon number is kernel assignment order, so it is shown
     /// as an instance marker rather than pretending to be a stable device identity.
     /// </summary>
+    /// <summary>
+    /// Label for a sensor belonging to a named device: PCI address and sensor kind first, model last.
+    /// Menus truncate from the right, so the parts that separate two identical drives go up front and the
+    /// descriptive model string is what is allowed to be cut.
+    /// </summary>
+    public static string DeviceLabel(string friendly, string pciBus, string deviceModel)
+    {
+        var bus = GpuFormat.CompactPciBus(pciBus);
+        var head = bus.Length > 0 ? $"{bus} {friendly}" : friendly;
+        return string.IsNullOrWhiteSpace(deviceModel) ? head : $"{head} · {deviceModel.Trim()}";
+    }
+
     public static string ChipInstance(string sourceId)
     {
         var parts = sourceId.Split(':');

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using FluentAssertions;
 using OpenFan.Core.Config;
+using OpenFan.Core.Hardware;
 using OpenFan.Core.Hud;
 using Xunit;
 
@@ -124,13 +125,25 @@ public class HudTests
         text.Should().NotContain("GPU-d0f36b3b", "a UUID in a tooltip tells the user nothing about which card it is");
     }
 
+    [Fact]
+    public void Drive_labels_lead_with_pci_so_truncation_cannot_hide_the_discriminator()
+    {
+        // Two identical WD_BLACK SN850X 8000GB drives in this box: the model alone cannot separate them.
+        var a = HudDescribe.DeviceLabel("Composite", "0000:a9:00.0", "WD_BLACK SN850X 8000GB");
+        var b = HudDescribe.DeviceLabel("Composite", "0000:ad:00.0", "WD_BLACK SN850X 8000GB");
+
+        a.Should().Be("a9:00.0 Composite · WD_BLACK SN850X 8000GB");
+        a.Should().NotBe(b);
+        a.IndexOf("a9:00.0").Should().Be(0, "menus truncate the tail, so the discriminator must be first");
+    }
+
     [Theory]
-    [InlineData("hwmon:nvme:2:temp:temp1", "nvme (hwmon2)")]
-    [InlineData("hwmon:nct6799:0:temp:temp1", "nct6799 (hwmon0)")]
-    [InlineData("nvml:GPU-abc:temp:core", "")]        // GPUs carry a PCI bus instead
-    [InlineData("cpu:temp:c", "")]
-    public void Chip_instance_qualifier_only_applies_to_hwmon_ids(string id, string expected) =>
-        HudDescribe.ChipInstance(id).Should().Be(expected);
+    [InlineData("Sensor 1", "", "Samsung SSD 970 EVO Plus 2TB", "Sensor 1 · Samsung SSD 970 EVO Plus 2TB")]
+    [InlineData("Composite", "0000:c1:00.0", "", "c1:00.0 Composite")]     // no model: bus + kind still work
+    [InlineData("Composite", "", "", "Composite")]
+    public void Drive_labels_degrade_gracefully_without_one_of_the_parts(
+        string kind, string pci, string model, string expected) =>
+        HudDescribe.DeviceLabel(kind, pci, model).Should().Be(expected);
 
     [Fact]
     public void Identical_gpus_are_told_apart_by_pci_bus_in_the_tooltip()

@@ -229,6 +229,16 @@ renderer, `TrayHudPage.cs` is the picker (partial class of MainWindow), `HudColo
   because menu width truncates long names from the right and would cut off exactly the disambiguator. This machine has
   two RTX PRO 6000 cards at `11:00.0` and `E1:00.0`, identical text without it — the same reason `GpuFormat.GpuLabel`
   exists for the fan pages.
+- **NVMe identity comes from the controller class directory, not the hwmon symlink.** `/sys/class/hwmon/hwmonN/device`
+  is a *relative* link and the class directories are themselves links, so resolving it to a real path is unreliable; the
+  link's **name** (`nvmeN`) is enough, and `/sys/class/nvme/nvmeN/model` + `address` are plain world-readable files.
+  `MainWindow.NvmeLabels` (hwmon index → model + PCI) feeds both the Sensors page headings and the HUD picker, so the
+  two screens cannot disagree about what a drive is called. PCI leads in HUD labels because this box has two drives of
+  the same model (`a9:00.0` / `ad:00.0`) and menus truncate from the right.
+- **MenuItem headers eat underscores.** Avalonia parses `_` as an access-key marker, so sensor names arrived mangled —
+  "WD_BLACK SN850X" rendered as "WDBLACK SN850X", "PCH_CHIP_CPU_MAX_TEMP" as "PCHCHIPCPU_MAX_TEMP". `MainWindow.MenuText`
+  doubles them; verified against sysfs that labels now render exactly as the kernel reports them. TextBlock rows were
+  never affected, which is why only menu paths needed it.
 - **Temperature entries need qualification too**: five NVMe hwmon chips all report "Composite", so the picker prefixes
   the chip (`nct6799 · AUXIN5`) and, where a label still collides, widens it to `HudDescribe.ChipInstance`
   (`nvme (hwmon2) · Composite`). The hwmon number is kernel assignment order, not stable device identity — shown as an

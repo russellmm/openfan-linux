@@ -661,6 +661,14 @@ public sealed partial class MainWindow : Window
         };
     }
 
+    /// <summary>
+    /// Escapes text for a MenuItem header. Avalonia parses "_" as an access-key marker and swallows the
+    /// first one, which silently mangles sensor names — "WD_BLACK SN850X" showed up as "WDBLACK SN850X" and
+    /// "PCHCHIP_CPU_MAX_TEMP" as "PCHCHIPCPU_MAX_TEMP". Doubling it renders a literal underscore.
+    /// </summary>
+    internal static string MenuText(string text) =>
+        text.Contains('_') ? text.Replace("_", "__") : text;
+
     /// <summary>Rows shown on the Sensors page: temps, tach speeds, and GPU fan percent readback.</summary>
     private static bool IsSensorish(HardwareItem i) =>
         i.Kind is HardwareKind.Temperature or HardwareKind.Tach
@@ -675,11 +683,13 @@ public sealed partial class MainWindow : Window
         return item.Group;
     }
 
-    // Maps hwmon index -> drive model. NVMe temp chips are /sys/class/hwmon/hwmonN (name "nvme");
-    // the model file sits behind the device symlink and reads through it directly.
-    private static readonly Lazy<Dictionary<string, string>> NvmeLabels = new(() =>
+    // Maps hwmon index -> (drive model, PCI address). NVMe temp chips are /sys/class/hwmon/hwmonN (name
+    // "nvme"); the model file sits behind the device symlink and reads through it directly. The PCI address
+    // comes from that same resolved path — two drives of the same model are otherwise indistinguishable,
+    // and unlike the hwmon index the address is stable across reboots.
+    private static readonly Lazy<Dictionary<string, (string Model, string PciBus)>> NvmeLabels = new(() =>
     {
-        var map = new Dictionary<string, string>();
+        var map = new Dictionary<string, (string, string)>();
         try
         {
             foreach (var hm in Directory.GetDirectories("/sys/class/hwmon"))
@@ -690,21 +700,37 @@ public sealed partial class MainWindow : Window
                     continue;
 
                 var idx = Path.GetFileName(hm).Replace("hwmon", "");
+
+                // The hwmon `device` link is relative and the class directories are themselves links, so a
+                // fully resolved path is unreliable here. The link's *name* is all that is needed: it is the
+                // NVMe controller (nvmeN), whose class directory holds model and PCI address as plain files.
+                string controller;
                 try
                 {
-                    var model = File.ReadAllText(Path.Combine(hm, "device", "model")).Trim();
-                    if (model.Length > 0)
-                        map[idx] = model;
+                    controller = new DirectoryInfo(Path.Combine(hm, "device")).ResolveLinkTarget(false)?.Name ?? "";
                 }
-                catch { }
+                catch { controller = ""; }
+                if (controller.Length == 0) continue;
+
+                string model = "", pci = "";
+                try { model = File.ReadAllText($"/sys/class/nvme/{controller}/model").Trim(); } catch { }
+                try { pci = GpuFormat.CompactPciBus(File.ReadAllText($"/sys/class/nvme/{controller}/address").Trim()); } catch { }
+
+                if (model.Length > 0 || pci.Length > 0)
+                    map[idx] = (model, pci);
             }
         }
         catch { }
         return map;
     });
 
-    private static string DeviceLabel(string key) =>
-        key.StartsWith("nvme:") && NvmeLabels.Value.TryGetValue(key[5..], out var lbl) ? lbl : key;
+    /// <summary>Drive model for a "nvme:&lt;hwmon index&gt;" device key, or the key itself when unknown.</summary>
+    internal static string NvmeModel(string key) =>
+        key.StartsWith("nvme:") && NvmeLabels.Value.TryGetValue(key[5..], out var lbl) ? lbl.Model : key;
+
+    /// <summary>PCI address for a "nvme:&lt;hwmon index&gt;" device key, "" when the path carried none.</summary>
+    internal static string NvmePciBus(string key) =>
+        key.StartsWith("nvme:") && NvmeLabels.Value.TryGetValue(key[5..], out var lbl) ? lbl.PciBus : "";
 
     private static readonly string[] GroupOrder =
         ["CPU", "GPU", "Motherboard", "Chipset / ASUS EC", "AMD HSMP (SoC)", "Storage (NVMe)", "Network", "Other"];
@@ -734,7 +760,7 @@ public sealed partial class MainWindow : Window
             });
 
             var body = new StackPanel();
-            var devices = group.GroupBy(DeviceKey).OrderBy(g => DeviceLabel(g.Key), StringComparer.OrdinalIgnoreCase).ToList();
+            var devices = group.GroupBy(DeviceKey).OrderBy(g => NvmeModel(g.Key), StringComparer.OrdinalIgnoreCase).ToList();
 
             if (devices.Count > 1)
             {
@@ -748,7 +774,7 @@ public sealed partial class MainWindow : Window
                     var arrow = new TextBlock { Text = "▾", Foreground = Secondary, Width = 18, FontSize = 13 };
                     var hdrText = new TextBlock
                     {
-                        Text = DeviceLabel(dev.Key),
+                        Text = NvmeModel(dev.Key),
                         Foreground = ValueText,
                         FontSize = 13.5,
                         FontWeight = FontWeight.SemiBold,
@@ -1519,7 +1545,7 @@ public sealed partial class MainWindow : Window
         {
             var mi = new MenuItem
             {
-                Header = $"{_app.SensorLabel(t)} · {t.Group}",
+                Header = MenuText($"{_app.SensorLabel(t)} · {t.Group}"),
                 IsChecked = t.Id == current,
             };
             mi.Click += (_, _) =>
