@@ -223,6 +223,17 @@ renderer, `TrayHudPage.cs` is the picker (partial class of MainWindow), `HudColo
 - **`dotnet test tests/OpenFan.Core.Tests` does not rebuild the Avalonia app.** A correct Core fix looked broken in the
   lab because the launched `openfan.dll` was stale; build `src/OpenFan.Linux.App` before any visual check.
 
+- **Identical GPUs are only distinguishable by PCI bus**, so the bus goes in every GPU-facing label, not just the
+  tooltip: `HudDescribe.Of(…, pciBus:, gpuIndex:)` appends it (skipping duplicates when the name already carries one),
+  and the picker's GPU submenu puts it **first** (`GPU 3 · E1:00.0 — RTX PRO 6000 Blackwell Workstation Edition`)
+  because menu width truncates long names from the right and would cut off exactly the disambiguator. This machine has
+  two RTX PRO 6000 cards at `11:00.0` and `E1:00.0`, identical text without it — the same reason `GpuFormat.GpuLabel`
+  exists for the fan pages.
+- **Temperature entries need qualification too**: five NVMe hwmon chips all report "Composite", so the picker prefixes
+  the chip (`nct6799 · AUXIN5`) and, where a label still collides, widens it to `HudDescribe.ChipInstance`
+  (`nvme (hwmon2) · Composite`). The hwmon number is kernel assignment order, not stable device identity — shown as an
+  instance marker rather than implied to be one. GPU temps need nothing extra: their inventory names already carry the bus.
+
 - **The rebuild signature must hash everything `Rebuild()` reads.** It hashed only the tiles, so changing tiles-per-row
   from the Tray page saved the setting and left the strip laid out the old way — a silent no-op. The overlay's own menu
   masked it because that path nulls `_signature` before refreshing. Columns and scale are in the hash now
