@@ -44,6 +44,13 @@ public sealed class AppSettings
     /// <summary>Tiles per row (1 = single column). The UI clamps this; 0/negative falls back to 1.</summary>
     public int HudColumns { get; set; } = 1;
 
+    /// <summary>Overlay size multiplier (Settings ▸ Tray). Clamped by HudLayout.ClampScale.</summary>
+    public double HudScale { get; set; } = 1.0;
+
+    /// <summary>Keep the overlay above ordinary windows. Off lets it behave like a normal window so it can
+    /// be covered when you want the desktop in front.</summary>
+    public bool HudTopMost { get; set; } = true;
+
     // Overlay geometry: restored on launch, saved when the user drags it.
     public int? HudX { get; set; }
     public int? HudY { get; set; }

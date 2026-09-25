@@ -22,6 +22,8 @@ public partial class MainWindow
     private readonly StackPanel _hudRows = new() { Spacing = 6 };
     private CheckBox? _hudOnBox;
     private ComboBox? _hudColumnsBox;
+    private ComboBox? _hudSizeBox;
+    private CheckBox? _hudTopmostBox;
     private bool _hudSyncing;   // suppress handlers while re-reading settings the overlay just changed
 
     private void EnsureHudPage()
@@ -61,11 +63,42 @@ public partial class MainWindow
             (Application.Current as App)?.HudRefreshNow();
         };
 
+        var sizes = new ComboBox
+        {
+            ItemsSource = new[] { "Small", "Normal", "Large", "Huge" },
+            SelectedIndex = SizeIndex(_app.Settings.HudScale),
+            MinWidth = 110,
+        };
+        _hudSizeBox = sizes;
+        sizes.SelectionChanged += (_, _) =>
+        {
+            if (_hudSyncing || sizes.SelectedIndex < 0) return;
+            _app.Settings.HudScale = HudLayout.ClampScale(SizeScales[sizes.SelectedIndex]);
+            _app.Save();
+            (Application.Current as App)?.HudRefreshNow();
+        };
+
+        _hudTopmostBox = new CheckBox
+        {
+            Content = "Keep above other windows",
+            IsChecked = _app.Settings.HudTopMost,
+            Foreground = ValueText,
+        };
+        _hudTopmostBox.IsCheckedChanged += (_, _) =>
+        {
+            if (_hudSyncing) return;
+            _app.Settings.HudTopMost = _hudTopmostBox.IsChecked == true;
+            _app.Save();
+            (Application.Current as App)?.HudApplyTopMost();
+        };
+
         TrayContent.Children.Add(Card(
             "Desktop overlay",
-            "A borderless always-on-top strip of live sensor tiles — HWiNFO64-style. The tray icon cannot do this: GNOME renders tray items as icons only, with no text and themed colour.",
+            "A borderless strip of live sensor tiles — HWiNFO64-style. The tray icon cannot do this: GNOME renders tray items as icons only, with no text and themed colour.",
             _hudOnBox,
-            LabeledRow("Tiles per row", columns)));
+            LabeledRow("Tiles per row", columns),
+            LabeledRow("Overlay size", sizes),
+            _hudTopmostBox));
 
         // ---- tiles card -------------------------------------------------------------------------
         var add = new Button { Content = "Add sensor…", Classes = { "accent" } };
@@ -95,6 +128,10 @@ public partial class MainWindow
             if (_hudOnBox is not null) _hudOnBox.IsChecked = _app.Settings.HudEnabled;
             if (_hudColumnsBox is not null)
                 _hudColumnsBox.SelectedIndex = HudLayout.ClampColumns(_app.Settings.HudColumns) - 1;
+            if (_hudSizeBox is not null)
+                _hudSizeBox.SelectedIndex = SizeIndex(_app.Settings.HudScale);
+            if (_hudTopmostBox is not null)
+                _hudTopmostBox.IsChecked = _app.Settings.HudTopMost;
         }
         finally
         {
@@ -145,13 +182,19 @@ public partial class MainWindow
         };
         ToolTip.SetTip(swatch, "Tile background colour");
 
-        var name = new TextBlock
+        // Click-to-rename, same interaction as the fan cards and Sensors page: commit on blur or Enter.
+        var name = new TextBox
         {
             Text = string.IsNullOrWhiteSpace(tile.Label) ? HudFormat.LabelFor(tile.SourceId) : tile.Label,
-            Foreground = ValueText,
-            FontSize = 13,
-            VerticalAlignment = VerticalAlignment.Center,
-            TextTrimming = TextTrimming.CharacterEllipsis,
+            Classes = { "cardname" },
+            Margin = new Thickness(6, 0, 6, 0),
+        };
+        ToolTip.SetTip(name, $"{tile.SourceId}\nClick to rename this tile.");
+        name.LostFocus += (_, _) => CommitLabel(tile, name);
+        name.KeyDown += (_, e) =>
+        {
+            if (e.Key == Avalonia.Input.Key.Enter)
+                TopLevel.GetTopLevel(name)?.FocusManager?.ClearFocus();   // blur → commit
         };
 
         var unit = new TextBlock
@@ -194,6 +237,46 @@ public partial class MainWindow
         grid.Children.Add(down);
         grid.Children.Add(remove);
         return grid;
+    }
+
+    /// <summary>
+    /// Persists a renamed tile. An empty name falls back to the sensor-derived label rather than leaving a
+    /// blank tile; rebuilding the row list is skipped because Refresh() re-reads settings on the next tick.
+    /// </summary>
+    private void CommitLabel(HudTileSettings tile, TextBox box)
+    {
+        var text = (box.Text ?? "").Trim();
+        if (text.Length == 0)
+        {
+            tile.Label = null;
+            box.Text = HudFormat.LabelFor(tile.SourceId);
+        }
+        else if (text != tile.Label)
+        {
+            tile.Label = text;
+        }
+        else
+        {
+            return;   // nothing changed; don't touch the disk
+        }
+
+        _app.Save();
+        (Application.Current as App)?.HudRefreshNow();
+    }
+
+    private static readonly double[] SizeScales = [0.75, 1.0, 1.35, 1.8];
+
+    private static int SizeIndex(double scale)
+    {
+        var clamped = HudLayout.ClampScale(scale);
+        var best = 1;
+        var bestDelta = double.MaxValue;
+        for (var i = 0; i < SizeScales.Length; i++)
+        {
+            var delta = Math.Abs(SizeScales[i] - clamped);
+            if (delta < bestDelta) { bestDelta = delta; best = i; }
+        }
+        return best;
     }
 
     private void MoveTile(int index, int delta)

@@ -272,8 +272,11 @@ Chipset-ASUS EC / AMD HSMP / Storage (NVMe) / Network / Other via `SensorGroup()
 devices get collapsible ▾/▸ per-device headers (NVMe labeled with model from sysfs). Click-to-rename → `SensorAliases`;
 aliases drive every sensor dropdown app-wide (curve cards rebuild on commit); tooltip = original name + group + id.
 **Tray** (`78bca67` + this pass) — desktop-overlay setup: enable checkbox (seeds CPU power/temp + each GPU's
-power/temp on first enable), tiles-per-row, and a tile list with colour swatch (8-swatch menu or full RGB dialog with
-hex paste), unit, ↑/↓ ordering and ✕ removal. Every edit applies to the live overlay immediately — the overlay is its
+power/temp on first enable), tiles-per-row, overlay size (Small 0.75 / Normal 1.0 / Large 1.35 / Huge 1.8 →
+`HudScale`), a *Keep above other windows* checkbox (`HudTopMost`, mirrored by the strip's own right-click menu), and a
+tile list with colour swatch (8-swatch menu or full RGB dialog with hex paste), **click-to-rename label** (same
+interaction as fan cards: commit on blur or Enter; empty falls back to the sensor-derived name, never blank), unit,
+↑/↓ ordering and ✕ removal. Every edit applies to the live overlay immediately — the overlay is its
 own preview, so there is no mock-up to drift. Tray icon itself unchanged: Open / Apply curves / Exit.
 **Calibration window** — see §6 of previous revision / commit `f62c927`: live slider, auto-step sweep, avoid flags,
 validation trio gating Ok, get-or-create Cfg() rows.

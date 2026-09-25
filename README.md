@@ -37,8 +37,9 @@ Threadripper 9970X + RTX 5060 Ti / 2× RTX PRO 6000 Blackwell (driver 595.x).
   aliases flow into every curve dropdown while tooltips keep the original hardware name + id.
 - **Desktop overlay (HUD)** — an always-on-top, borderless strip of live sensor tiles, HWiNFO64-style. Configured on
   the **Tray** page: pick any temperature sensor plus CPU socket power / cap and each GPU's board power, give every
-  tile its own background colour (eight curated swatches or a full RGB picker with hex paste), order them, choose tiles
-  per row. Text colour is derived from the tile colour's luminance so it stays readable whatever you pick; drag it
+  tile its own background colour (eight curated swatches or a full RGB picker with hex paste), **click any tile's name
+  to rename it**, reorder them, choose tiles per row and overall size (Small / Normal / Large / Huge), and decide
+  whether it stays above other windows. Text colour is derived from the tile colour's luminance so it stays readable whatever you pick; drag it
   anywhere and it remembers where you left it (and if that position stops being reachable — a monitor goes away — it
   comes back on screen, or use right-click ▸ **Reset position**). Right-click also hides it or changes the layout.
   Read-only — the overlay never writes anything.

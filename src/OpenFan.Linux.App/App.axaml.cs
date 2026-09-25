@@ -88,6 +88,12 @@ public sealed class App : Application
     /// <summary>Tray-page edits apply immediately — the overlay is its own preview.</summary>
     public void HudRefreshNow() => _hud?.Refresh();
 
+    /// <summary>Applies the always-on-top preference without a rebuild (stacking is a window property).</summary>
+    public void HudApplyTopMost()
+    {
+        if (_hud is not null) _hud.Topmost = Hardware!.Settings.HudTopMost;
+    }
+
     private void ShowHud(bool visible)
     {
         if (!visible)

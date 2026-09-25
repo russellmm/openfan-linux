@@ -87,6 +87,31 @@ public class HudTests
     public void Tiles_per_row_stays_in_the_legal_range(int raw, int expected) =>
         HudLayout.ClampColumns(raw).Should().Be(expected);
 
+    [Theory]
+    [InlineData(1.0, 1.0)]
+    [InlineData(1.35, 1.35)]
+    [InlineData(0.0, 1.0)]     // a hand-edited 0 must not make the overlay invisible
+    [InlineData(-2.0, 1.0)]
+    [InlineData(99.0, 1.0)]    // nor cover the whole screen
+    [InlineData(double.NaN, 1.0)]
+    public void Scale_stays_in_the_legal_range(double raw, double expected) =>
+        HudLayout.ClampScale(raw).Should().Be(expected);
+
+    [Fact]
+    public void Tile_metrics_scale_together_so_text_does_not_outgrow_its_tile()
+    {
+        var normal = HudLayout.TileMetrics(1.0);
+        var large = HudLayout.TileMetrics(1.35);
+
+        large.Width.Should().BeApproximately(normal.Width * 1.35, 0.01);
+        large.Height.Should().BeApproximately(normal.Height * 1.35, 0.01);
+        large.ValueFont.Should().BeApproximately(normal.ValueFont * 1.35, 0.01);
+
+        // Text must stay inside the tile at any scale, or "Large" becomes clipped numbers.
+        large.ValueFont.Should().BeLessThan(large.Height);
+        normal.ValueFont.Should().BeLessThan(normal.Height);
+    }
+
     [Fact]
     public void Off_screen_saved_position_comes_back_grabbable()
     {

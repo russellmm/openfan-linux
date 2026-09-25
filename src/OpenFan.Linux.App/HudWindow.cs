@@ -30,9 +30,6 @@ namespace OpenFan.Linux.App;
 /// </remarks>
 public sealed class HudWindow : Window
 {
-    private const double TileWidth = 132;
-    private const double TileHeight = 58;
-
     private readonly FanApp _app;
     private readonly CpuMonitor _cpu = new();
     private readonly UniformGrid _grid = new();
@@ -50,7 +47,7 @@ public sealed class HudWindow : Window
         _app = app;
 
         SystemDecorations = SystemDecorations.None;
-        Topmost = true;
+        Topmost = _app.Settings.HudTopMost;
         ShowInTaskbar = false;
         ShowActivated = false;   // an overlay that steals focus on every launch is worse than none
         CanResize = false;
@@ -135,8 +132,10 @@ public sealed class HudWindow : Window
     {
         var tiles = _app.Settings.HudTiles;
 
-        var signature = string.Join("|",
-            tiles.Select(t => $"{t.SourceId}~{t.ColorHex}~{t.Label}"));
+        // Everything Rebuild() reads must be hashed here. Columns and scale were once left out, so the
+        // Tray page saved a new value and the strip sat there unchanged — invisible bug, obvious symptom.
+        var signature = $"{_app.Settings.HudColumns}x{_app.Settings.HudScale}|" +
+                        string.Join("|", tiles.Select(t => $"{t.SourceId}~{t.ColorHex}~{t.Label}"));
         if (signature != _signature)
             Rebuild(tiles, signature);
 
@@ -164,7 +163,9 @@ public sealed class HudWindow : Window
             _grid.Columns = 1;
             _grid.Children.Add(new Border
             {
-                Width = 132, Height = 40, Margin = new Thickness(4),
+                Width = HudLayout.TileMetrics(_app.Settings.HudScale).Width,
+                Height = 40 * HudLayout.ClampScale(_app.Settings.HudScale),
+                Margin = new Thickness(4),
                 Padding = new Thickness(10, 6, 10, 6), CornerRadius = new CornerRadius(7),
                 Background = new SolidColorBrush(Color.Parse("#2C363D")),
                 Child = new TextBlock
@@ -177,7 +178,8 @@ public sealed class HudWindow : Window
         }
 
         var columns = HudLayout.ClampColumns(_app.Settings.HudColumns);
-        _grid.Columns = tiles.Count == 0 ? 1 : Math.Min(columns, tiles.Count);
+        var (tileW, tileH, valueFont, labelFont) = HudLayout.TileMetrics(_app.Settings.HudScale);
+        _grid.Columns = Math.Min(columns, tiles.Count);
 
         foreach (var tile in tiles)
         {
@@ -187,23 +189,23 @@ public sealed class HudWindow : Window
             var value = new TextBlock
             {
                 Text = "—",
-                FontSize = 21,
+                FontSize = valueFont,
                 FontWeight = FontWeight.SemiBold,
                 Foreground = fg,
-                LineHeight = 22,
+                LineHeight = valueFont + 1,
             };
             var label = new TextBlock
             {
                 Text = string.IsNullOrWhiteSpace(tile.Label) ? HudFormat.LabelFor(tile.SourceId) : tile.Label,
-                FontSize = 11,
+                FontSize = labelFont,
                 Opacity = 0.85,
                 Foreground = fg,
             };
 
             _grid.Children.Add(new Border
             {
-                Width = TileWidth,
-                Height = TileHeight,
+                Width = tileW,
+                Height = tileH,
                 Margin = new Thickness(4),
                 Padding = new Thickness(10, 6, 10, 6),
                 CornerRadius = new CornerRadius(7),
@@ -288,6 +290,38 @@ public sealed class HudWindow : Window
             columns.Items.Add(item);
         }
         menu.Items.Add(columns);
+
+        var topmost = new MenuItem
+        {
+            Header = "Always on top",
+            ToggleType = MenuItemToggleType.CheckBox,
+            IsChecked = _app.Settings.HudTopMost,
+        };
+        topmost.Click += (_, _) =>
+        {
+            _app.Settings.HudTopMost = topmost.IsChecked == true;
+            Topmost = _app.Settings.HudTopMost;
+            _app.Save();
+            App.HudUiSync?.Invoke();
+        };
+        menu.Items.Add(topmost);
+
+        var size = new MenuItem { Header = "Size" };
+        foreach (var (sizeLabel, scale) in new[] { ("Small", 0.75), ("Normal", 1.0), ("Large", 1.35), ("Huge", 1.8) })
+        {
+            var captured = scale;
+            var item = new MenuItem { Header = sizeLabel };
+            item.Click += (_, _) =>
+            {
+                _app.Settings.HudScale = HudLayout.ClampScale(captured);
+                _app.Save();
+                _signature = "";   // geometry changed — force a rebuild
+                Refresh();
+                App.HudUiSync?.Invoke();
+            };
+            size.Items.Add(item);
+        }
+        menu.Items.Add(size);
 
         var reposition = new MenuItem { Header = "Reset position (top-left)" };
         reposition.Click += (_, _) =>

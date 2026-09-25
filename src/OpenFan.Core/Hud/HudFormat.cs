@@ -99,6 +99,21 @@ public static class HudLayout
     /// <summary>Legal tiles-per-row. Anything silly (0, negative, absurd) collapses to a single column.</summary>
     public static int ClampColumns(int columns) => columns is >= 1 and <= MaxColumns ? columns : 1;
 
+    public const double MinScale = 0.6;
+    public const double MaxScale = 2.5;
+
+    /// <summary>Overlay scale. Nonsense values (0, NaN, negative, absurd) fall back to 1.0 rather than
+    /// producing an invisible or screen-covering strip.</summary>
+    public static double ClampScale(double scale) =>
+        double.IsFinite(scale) && scale >= MinScale && scale <= MaxScale ? scale : 1.0;
+
+    /// <summary>Tile geometry at a given scale — one place, so the window and any preview agree.</summary>
+    public static (double Width, double Height, double ValueFont, double LabelFont) TileMetrics(double scale)
+    {
+        var s = ClampScale(scale);
+        return (132 * s, 58 * s, 21 * s, 11 * s);
+    }
+
     /// <summary>A screen's pixel bounds, as plain data so the clamp is testable without a display server.</summary>
     public readonly record struct ScreenBounds(int X, int Y, int Width, int Height);
 
