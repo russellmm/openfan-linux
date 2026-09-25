@@ -125,6 +125,40 @@ public class HudTests
     }
 
     [Theory]
+    [InlineData("hwmon:nvme:2:temp:temp1", "nvme (hwmon2)")]
+    [InlineData("hwmon:nct6799:0:temp:temp1", "nct6799 (hwmon0)")]
+    [InlineData("nvml:GPU-abc:temp:core", "")]        // GPUs carry a PCI bus instead
+    [InlineData("cpu:temp:c", "")]
+    public void Chip_instance_qualifier_only_applies_to_hwmon_ids(string id, string expected) =>
+        HudDescribe.ChipInstance(id).Should().Be(expected);
+
+    [Fact]
+    public void Identical_gpus_are_told_apart_by_pci_bus_in_the_tooltip()
+    {
+        // The user's box: two RTX PRO 6000 cards differing only by slot. Name-only tooltips are ambiguous.
+        const string a = "nvml:GPU-11111111-2222-3333-4444-555555555555:power:w";
+        const string b = "nvml:GPU-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:power:w";
+        const string sameName = "NVIDIA RTX PRO 6000 Blackwell Workstation Edition";
+
+        var tipA = HudDescribe.Of(a, sameName, pciBus: "0000:01:00.0", gpuIndex: 1);
+        var tipB = HudDescribe.Of(b, sameName, pciBus: "0000:11:00.0", gpuIndex: 2);
+
+        tipA.Should().Contain("01:00.0");
+        tipB.Should().Contain("11:00.0");
+        tipA.Should().NotBe(tipB, "two identical cards must not produce the same tooltip");
+        tipA.Should().Contain("board power");
+    }
+
+    [Fact]
+    public void Bus_is_not_duplicated_when_the_name_already_carries_it()
+    {
+        var tip = HudDescribe.Of(
+            "nvml:GPU-x:temp:core", "RTX PRO 6000 Blackwell WS 11:00.0", pciBus: "0000:11:00.0");
+
+        tip.Should().Be("RTX PRO 6000 Blackwell WS 11:00.0 — GPU temperature");
+    }
+
+    [Theory]
     [InlineData("cpu:power:w", "CPU socket power draw (HSMP)")]
     [InlineData("cpu:pptcap:w", "CPU socket power limit — PPT cap")]
     [InlineData("cpu:temp:c", "CPU package temperature")]

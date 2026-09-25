@@ -1,5 +1,4 @@
 using Avalonia;
-using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
@@ -294,7 +293,7 @@ public partial class MainWindow
             if (parts.Length >= 2)
                 foreach (var g in _app.Nvml.SnapshotAll())
                     if (g.Uuid == parts[1])
-                        return HudDescribe.Of(id, g.Name);
+                        return HudDescribe.Of(id, g.Name, pciBus: g.PciBus, gpuIndex: g.Index);
         }
 
         var item = _app.Inventory.FirstOrDefault(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase));
@@ -388,7 +387,12 @@ public partial class MainWindow
         var gpus = new MenuItem { Header = "GPU power" };
         foreach (var g in _app.Nvml.SnapshotAll())
         {
-            var label = $"GPU {g.Index + 1} — {HudFormat.LabelFor("nvml:" + g.Uuid + ":x", g.Name, g.Index)}";
+            // Bus first, because it is the disambiguator between identical cards and menu width truncates the
+            // tail of long names — "…Workstation Edition 11:00.0" loses exactly the part that matters.
+            var bus = GpuFormat.CompactPciBus(g.PciBus);
+            var label = bus.Length > 0
+                ? $"GPU {g.Index + 1} · {bus} — {GpuFormat.ShortenGpuName(g.Name)}"
+                : $"GPU {g.Index + 1} — {GpuFormat.ShortenGpuName(g.Name)}";
             gpus.Items.Add(AddItem(label, $"nvml:{g.Uuid}:power:w", $"GPU {g.Index + 1} power"));
         }
         if (gpus.Items.Count == 0)
@@ -399,16 +403,51 @@ public partial class MainWindow
         flyout.Items.Add(gpus);
 
         var temps = new MenuItem { Header = "Temperatures" };
-        foreach (var item in _app.Inventory.Where(i => i.Kind == HardwareKind.Temperature))
+        var tempItems = _app.Inventory.Where(i => i.Kind == HardwareKind.Temperature).ToList();
+        var duplicateHeaders = tempItems
+            .Select(i => TempHeader(i, NicknameOrName(i)))
+            .GroupBy(h => h)
+            .Where(g => g.Count() > 1)
+            .Select(g => g.Key)
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var item in tempItems)
         {
-            var friendly = _app.Settings.SensorNicknames.TryGetValue(item.Id, out var nick) ? nick : item.Name;
-            temps.Items.Add(AddItem(friendly, item.Id, null));
+            var friendly = NicknameOrName(item);
+            // Several chips expose the same generic label ("Composite", "Sensor 1"), so name alone cannot pick
+            // one out. Prefix the chip unless the name already carries it (GPUs do: "…01:00.0 Core").
+            var header = TempHeader(item, friendly);
+            // Same plain label on several chips ("Composite" on every NVMe drive): widen to the hwmon
+            // instance so the entries are actually distinguishable.
+            if (duplicateHeaders.Contains(header))
+                header = $"{HudDescribe.ChipInstance(item.Id)} · {friendly}";
+            temps.Items.Add(AddItem(header, item.Id, null));
         }
         if (temps.Items.Count == 0)
             temps.Items.Add(new MenuItem { Header = "no temperature sensors", IsEnabled = false });
         flyout.Items.Add(temps);
 
         return flyout;
+    }
+
+    private string NicknameOrName(HardwareItem item) =>
+        _app.Settings.SensorNicknames.TryGetValue(item.Id, out var nick) && !string.IsNullOrWhiteSpace(nick)
+            ? nick
+            : item.Name;
+
+    /// <summary>Menu label for a temperature sensor: chip-qualified unless the name already says it.</summary>
+    private static string TempHeader(HardwareItem item, string friendly)
+    {
+        var chip = ChipHint(item.Id);
+        return chip.Length > 0 && !friendly.Contains(chip, StringComparison.OrdinalIgnoreCase)
+            ? $"{chip} · {friendly}"
+            : friendly;
+    }
+
+    /// <summary>Chip name from a sensor id (hwmon:&lt;chip&gt;:…), empty for ids that carry no chip.</summary>
+    private static string ChipHint(string sourceId)
+    {
+        var parts = sourceId.Split(':');
+        return parts.Length >= 2 && parts[0] == "hwmon" ? parts[1] : "";
     }
 
     private MenuItem AddItem(string header, string sourceId, string? label)

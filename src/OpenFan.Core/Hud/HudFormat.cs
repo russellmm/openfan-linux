@@ -1,5 +1,6 @@
 using System.Globalization;
 using OpenFan.Core.Config;
+using OpenFan.Core.Hardware;
 
 namespace OpenFan.Core.Hud;
 
@@ -151,7 +152,21 @@ public static class HudLayout
 /// nothing about which card they are looking at.</summary>
 public static class HudDescribe
 {
-    public static string Of(string sourceId, string? friendlyName = null, string? group = null)
+    /// <summary>
+    /// Chip plus hwmon instance for a sensor id ("nvme (hwmon2)"), used only to separate entries whose
+    /// plain labels collide. Several NVMe drives all report "Composite", so the chip name alone is not
+    /// enough — and unlike the GPU PCI bus, the hwmon number is kernel assignment order, so it is shown
+    /// as an instance marker rather than pretending to be a stable device identity.
+    /// </summary>
+    public static string ChipInstance(string sourceId)
+    {
+        var parts = sourceId.Split(':');
+        if (parts.Length < 3 || parts[0] != "hwmon") return "";
+        return int.TryParse(parts[2], out var n) ? $"{parts[1]} (hwmon{n})" : parts[1];
+    }
+
+    public static string Of(
+        string sourceId, string? friendlyName = null, string? group = null, string? pciBus = null, int? gpuIndex = null)
     {
         var id = sourceId.ToLowerInvariant();
         switch (id)
@@ -163,7 +178,14 @@ public static class HudDescribe
 
         if (id.StartsWith("nvml:", StringComparison.Ordinal))
         {
+            // Two identical cards are indistinguishable by name, so the PCI bus goes in the label — the same
+            // convention the rest of the app uses (GpuFormat.GpuLabel: "RTX PRO 6000 Blackwell WS 11:00.0").
             var who = string.IsNullOrWhiteSpace(friendlyName) ? "GPU" : friendlyName!.Trim();
+            var bus = GpuFormat.CompactPciBus(pciBus);
+            if (bus.Length > 0 && !who.Contains(bus, StringComparison.OrdinalIgnoreCase))
+                who = $"{who} {bus}";
+            if (gpuIndex is int idx)
+                who = $"{who} (GPU {idx + 1})";
             // Same id shape as LabelFor: kind is segment 2, not 3.
             var parts = sourceId.Split(':');
             var what = parts.Length > 2 ? parts[2] : "";
