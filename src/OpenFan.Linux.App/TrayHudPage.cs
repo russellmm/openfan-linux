@@ -21,6 +21,8 @@ public partial class MainWindow
     private bool _hudPageBuilt;
     private readonly StackPanel _hudRows = new() { Spacing = 6 };
     private CheckBox? _hudOnBox;
+    private ComboBox? _hudColumnsBox;
+    private bool _hudSyncing;   // suppress handlers while re-reading settings the overlay just changed
 
     private void EnsureHudPage()
     {
@@ -38,6 +40,7 @@ public partial class MainWindow
         };
         _hudOnBox.IsCheckedChanged += (_, _) =>
         {
+            if (_hudSyncing) return;
             var on = _hudOnBox.IsChecked == true;
             (Application.Current as App)?.SetHudVisible(on);
             RebuildHudRows();
@@ -49,10 +52,11 @@ public partial class MainWindow
             SelectedIndex = Math.Clamp(_app.Settings.HudColumns, 1, 4) - 1,
             MinWidth = 110,
         };
+        _hudColumnsBox = columns;
         columns.SelectionChanged += (_, _) =>
         {
-            if (columns.SelectedIndex < 0) return;
-            _app.Settings.HudColumns = columns.SelectedIndex + 1;
+            if (_hudSyncing || columns.SelectedIndex < 0) return;
+            _app.Settings.HudColumns = HudLayout.ClampColumns(columns.SelectedIndex + 1);
             _app.Save();
             (Application.Current as App)?.HudRefreshNow();
         };
@@ -73,7 +77,29 @@ public partial class MainWindow
             _hudRows,
             add));
 
+        // The overlay's own right-click menu can hide it or change columns; re-read rather than let the
+        // page keep asserting a state that is no longer true.
+        App.HudUiSync = SyncHudControls;
+
         RebuildHudRows();
+    }
+
+    private void SyncHudControls()
+    {
+        if (!_hudPageBuilt)
+            return;
+
+        _hudSyncing = true;
+        try
+        {
+            if (_hudOnBox is not null) _hudOnBox.IsChecked = _app.Settings.HudEnabled;
+            if (_hudColumnsBox is not null)
+                _hudColumnsBox.SelectedIndex = HudLayout.ClampColumns(_app.Settings.HudColumns) - 1;
+        }
+        finally
+        {
+            _hudSyncing = false;
+        }
     }
 
     /// <summary>Re-renders the tile rows from settings. Called on any add/remove/reorder/colour change.</summary>

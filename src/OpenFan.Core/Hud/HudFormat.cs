@@ -88,6 +88,15 @@ public static class HudFormat
     }
 }
 
+/// <summary>Layout helpers shared by the Tray page and the overlay's own menu.</summary>
+public static class HudLayout
+{
+    public const int MaxColumns = 4;
+
+    /// <summary>Legal tiles-per-row. Anything silly (0, negative, absurd) collapses to a single column.</summary>
+    public static int ClampColumns(int columns) => columns is >= 1 and <= MaxColumns ? columns : 1;
+}
+
 /// <summary>Colour helpers for tiles the user colours themselves.</summary>
 public static class HudTheme
 {

@@ -125,7 +125,7 @@ public sealed class HudWindow : Window
         _shown.Clear();
         _grid.Children.Clear();
 
-        var columns = Math.Clamp(_app.Settings.HudColumns <= 0 ? 1 : _app.Settings.HudColumns, 1, 6);
+        var columns = HudLayout.ClampColumns(_app.Settings.HudColumns);
         _grid.Columns = tiles.Count == 0 ? 1 : Math.Min(columns, tiles.Count);
 
         foreach (var tile in tiles)
@@ -228,10 +228,11 @@ public sealed class HudWindow : Window
             var item = new MenuItem { Header = n == 1 ? "1 (column)" : n.ToString() };
             item.Click += (_, _) =>
             {
-                _app.Settings.HudColumns = captured;
+                _app.Settings.HudColumns = HudLayout.ClampColumns(captured);
                 _app.Save();
                 _signature = "";   // force layout rebuild
                 Refresh();
+                App.HudUiSync?.Invoke();   // keep the Tray page's combo honest
             };
             columns.Items.Add(item);
         }
@@ -243,6 +244,7 @@ public sealed class HudWindow : Window
             _app.Settings.HudEnabled = false;
             _app.Save();
             Hide();
+            App.HudUiSync?.Invoke();   // the Tray page's checkbox must not stay ticked
         };
         menu.Items.Add(hide);
 

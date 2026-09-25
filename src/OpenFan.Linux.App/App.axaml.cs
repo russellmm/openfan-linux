@@ -48,6 +48,12 @@ public sealed class App : Application
     /// <summary>HudWindow's right-click ▸ Configure: bring the main window forward.</summary>
     public static Action? ShowMainWindowRequested { get; set; }
 
+    /// <summary>
+    /// Raised when a HUD setting changes *outside* the Tray page (the overlay's own menu), so the page can
+    /// re-read settings instead of showing a ticked checkbox for an overlay that was just hidden.
+    /// </summary>
+    public static Action? HudUiSync { get; set; }
+
     private HudWindow? _hud;
 
     /// <summary>

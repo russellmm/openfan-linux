@@ -78,6 +78,15 @@ public class HudTests
             tiles[i].ColorHex.Should().NotBe(tiles[i - 1].ColorHex, $"tile {i} sits next to an identical colour");
     }
 
+    [Theory]
+    [InlineData(1, 1)]
+    [InlineData(4, 4)]
+    [InlineData(0, 1)]      // a hand-edited config must not produce a zero-column layout
+    [InlineData(-3, 1)]
+    [InlineData(99, 1)]     // absurd values collapse to one column rather than an empty strip
+    public void Tiles_per_row_stays_in_the_legal_range(int raw, int expected) =>
+        HudLayout.ClampColumns(raw).Should().Be(expected);
+
     [Fact]
     public void Overlay_settings_round_trip_and_order_is_the_list_order()
     {

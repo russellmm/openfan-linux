@@ -202,6 +202,16 @@ renderer, `TrayHudPage.cs` is the picker (partial class of MainWindow), `HudColo
   only on a settings-signature change; one `CpuMonitor.Read()` shared by all CPU tiles per refresh (three tiles would
   otherwise triple sysfs traffic for the same sample). Refresh is driven by `FanApp.Ticked`, so the overlay and the
   control loop always show the same sample.
+- **Two-way sync**: the overlay's own menu (hide, tiles-per-row) raises `App.HudUiSync`, and the Tray page re-reads
+  settings behind a `_hudSyncing` guard so handlers don't echo. Without it the page kept a ticked checkbox for an
+  overlay the user had just hidden from the strip itself.
+- **Verified on the active-profile path, not just a scratch config**: with `…/openfan/active` pointing at
+  `/tmp/…/work.json`, the overlay read its tiles from that file, recolouring via the UI wrote back to *that* file, and
+  no stray `config.json` appeared. Launching with the overlay enabled leaves focus on the main window (title showed
+  `OpenFan — work.json`; `xdotool getactivewindow` never reported the overlay).
+- **Idle cost measured**, not assumed: 1.04 s vs 0.91 s CPU per 30 s wall with the overlay on vs off (~0.03 % of one
+  core). Closing the main window hides it (`e.Cancel = true` + `Hide()`), so the DispatcherTimer keeps ticking and the
+  overlay keeps updating from the tray process.
 - **Missing reading renders as `—`**, never 0 — a HUD that invents an idle-looking 0 W CPU is worse than a blank tile.
 - Position restore needs **bounded self-correction**: the WM re-places borderless windows *after* `Show()` returns, so
   `OnPositionChanged` nudges back up to 4 times, then accepts the WM's choice and saves that instead of looping forever.
