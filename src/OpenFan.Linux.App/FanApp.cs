@@ -301,6 +301,9 @@ public sealed class FanApp : IDisposable
     private static string ActivePointerPath => Path.Combine(
         Path.GetDirectoryName(SettingsStore.DefaultPath)!, "active");
 
+    /// <summary>Live config file (honours the `active` sidecar). Needed at startup, before FanApp is built.</summary>
+    internal static string ActiveConfigPathAtStartup() => ResolveActivePath();
+
     private static string ResolveActivePath()
     {
         try
