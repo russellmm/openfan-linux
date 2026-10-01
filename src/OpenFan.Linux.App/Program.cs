@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Platform;
 using OpenFan.Core.Config;
 
 namespace OpenFan.Linux.App;
@@ -44,8 +45,25 @@ internal static class Program
     }
 
     public static AppBuilder BuildAvaloniaApp()
-        => AppBuilder.Configure<App>()
-            .UsePlatformDetect()
-            .WithInterFont()
-            .LogToTrace();
+    {
+        var builder = AppBuilder.Configure<App>().UsePlatformDetect().WithInterFont().LogToTrace();
+
+        // OPENFAN_RENDER works around windows that come up with an empty surface — invisible, but still on
+        // top of everything and swallowing clicks. Seen under GNOME Wayland + XWayland, where the GLX-backed
+        // surface can present nothing at all; Xvfb never shows it because there is no GLX there to begin with.
+        //   software  → CPU rendering, no GL context
+        //   retained  → GL kept, but Avalonia holds its own framebuffer instead of presenting per-frame
+        var mode = Environment.GetEnvironmentVariable("OPENFAN_RENDER")?.Trim().ToLowerInvariant();
+        if (mode is "software" or "retained")
+        {
+            Console.Error.WriteLine($"openfan: rendering workaround = {mode}");
+            builder = builder.With(new X11PlatformOptions
+            {
+                RenderingMode = mode == "software" ? new[] { X11RenderingMode.Software } : null,
+                UseRetainedFramebuffer = mode == "retained",
+            });
+        }
+
+        return builder;
+    }
 }

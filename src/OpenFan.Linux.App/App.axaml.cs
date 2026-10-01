@@ -25,7 +25,15 @@ public sealed class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime lifetime)
         {
             MainWin = new MainWindow(Hardware);
-            lifetime.MainWindow = MainWin;
+
+            // "Start minimized" was a dead setting: the checkbox wrote it, nothing read it. Avalonia auto-shows
+            // lifetime.MainWindow (setting WindowState.Minimized beforehand does not survive that), so the way to
+            // start in the tray without a flash is to leave MainWindow unassigned and shut down explicitly instead
+            // of on last-window-close — tray Open / icon click shows it later.
+            if (Hardware.Settings.StartMinimized)
+                lifetime.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            else
+                lifetime.MainWindow = MainWin;
 
             // Exit (tray or session end): restore hwmon auto + NVML default, persist (spec §3.2).
             lifetime.Exit += (_, _) =>
@@ -63,11 +71,7 @@ public sealed class App : Application
     private void SetupHud()
     {
         Hardware!.Ticked += () => _hud?.Refresh();
-        ShowMainWindowRequested = () =>
-        {
-            MainWin?.Show();
-            MainWin?.Activate();
-        };
+        ShowMainWindowRequested = RestoreMainWindow;
         if (Hardware.Settings.HudEnabled) ShowHud(visible: true);
     }
 
@@ -119,11 +123,7 @@ public sealed class App : Application
         // StatusNotifierItem tray; GNOME needs the AppIndicator extension —
         // if unavailable the window just stays visible (spec §12 mitigation).
         var open = new NativeMenuItem("Open");
-        open.Click += (_, _) =>
-        {
-            MainWin?.Show();
-            MainWin?.Activate();
-        };
+        open.Click += (_, _) => RestoreMainWindow();
 
         var applyItem = new NativeMenuItem("Apply curves") { ToggleType = NativeMenuItemToggleType.CheckBox };
         applyItem.IsChecked = Hardware.Settings.ApplyCurves;
@@ -148,7 +148,27 @@ public sealed class App : Application
             ToolTipText = "OpenFan — fan control",
             Menu = new NativeMenu { open, applyItem, exit },
         };
-        TrayIcon.SetIcons(this, new TrayIcons { tray });    }
+        // Clicking the icon itself used to do nothing: only the menu items had handlers. This restores rather
+        // than toggles, because under an appindicator host a click can also arrive for menu interaction — a tray
+        // icon that hides the window while you were reaching for the menu is worse than one that only opens it.
+        tray.Clicked += (_, _) => RestoreMainWindow();
+
+        TrayIcon.SetIcons(this, new TrayIcons { tray });
+    }
+
+    /// <summary>
+    /// Brings the main window forward from hidden or minimized state. Show() alone does not undo a minimize, and
+    /// close-to-tray needs Show() — both paths have to be covered here, since this is the only way back once the
+    /// window is off screen.
+    /// </summary>
+    public void RestoreMainWindow()
+    {
+        if (MainWin is not { } w) return;
+
+        if (!w.IsVisible) w.Show();
+        if (w.WindowState == WindowState.Minimized) w.WindowState = WindowState.Normal;
+        w.Activate();
+    }
 
     private static WindowIcon MakeTrayIcon()
     {

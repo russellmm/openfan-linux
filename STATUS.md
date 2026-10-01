@@ -245,6 +245,21 @@ renderer, `TrayHudPage.cs` is the picker (partial class of MainWindow), `HudColo
   the control both rendered identically there, which would have looked like a fix that did nothing. Verify scale
   changes on the actual session (`Settings ▸ Window scale` reports the factor in use).
 
+- **The user's deployed copy is pinned to `ba2aa30`.** On their real GNOME Wayland session, builds from today's
+  commits showed as an invisible window: mapped, sized correctly, drawing nothing, and still on top of other windows
+  swallowing clicks. Cause not yet isolated. Their autostart and menu entries point at `~/my_programs/openfan-linux`,
+  which holds a self-contained build of the last known-good commit; `.desktop.bak-<date>` copies keep the previous
+  dev-wrapper wiring.
+- **Window geometry proves nothing about rendering.** Every Release build today was "verified" by measuring size with
+  xwininfo — a fully transparent window measures exactly like a correct one, so those checks could not have caught this.
+  Verification now means capturing pixels and looking at them (`hd shot` on the virtual display).
+- **Xvfb cannot expose GL presentation bugs.** There is no GLX there, so Avalonia always falls back to software
+  rendering — which is why every lab screenshot looked perfect while the real session drew nothing. Lab checks prove
+  startup and layout, never that GL presents correctly on hardware.
+- **Never launch-and-kill repeatedly on the user's live desktop.** Roughly ten start/SIGTERM cycles on their session
+  while windows were mapped is the leading suspect for the empty-surface state, and it also left compositor damage.
+  Use `hd` on :99; touch :0 only with a single launch they have agreed to.
+
 - **NVMe identity comes from the controller class directory, not the hwmon symlink.** `/sys/class/hwmon/hwmonN/device`
   is a *relative* link and the class directories are themselves links, so resolving it to a real path is unreliable; the
   link's **name** (`nvmeN`) is enough, and `/sys/class/nvme/nvmeN/model` + `address` are plain world-readable files.
