@@ -96,16 +96,19 @@ On a Wayland desktop OpenFan runs as an X11 client through XWayland, where its s
 
 - **Login autostart can beat the desktop.** GNOME writes `Xft.dpi` a moment after starting autostart apps, so an
   app that reads it immediately gets nothing and draws at scale 1 — a postage-stamp window on a HiDPI panel, but
-  only at login; launching it by hand later looks fine. OpenFan now waits up to 2.5 s for the hint **only when it
-  is missing on a Wayland session**, so a normal launch pays nothing.
+  only at login; launching it by hand later looks fine. OpenFan now waits up to 3 s for the hint **only when it is
+  missing**, so a normal launch pays nothing. It deliberately does not hand the toolkit a scale factor of its own in
+  automatic mode: on GNOME Wayland that override has produced a window which mapped at the correct size, painted
+  nothing, and still swallowed clicks over other windows. Waiting changes only timing.
 - **The toolkit's override needs connector names.** `AVALONIA_SCREEN_SCALE_FACTORS="*=2"` is silently ignored;
   `DP-2=2;DP-3=2` works. Pins therefore enumerate the displays (mutter, falling back to `xrandr`).
 
 If a window is still the wrong size, **Settings ▸ Window scale** pins it for every display — it shows the factor in
-use right now, applies on next launch, and survives reboots. To see what happened at login:
+use right now, applies on next launch, and survives reboots. A pin never depends on hint timing, so it is the
+deterministic choice when sizing has to be right at login. To see what happened at login:
 
 ```bash
-journalctl --user -u app-openfan@autostart.service -b | grep -E "window scale|session published"
+journalctl --user -u app-openfan@autostart.service -b | grep -E "window scale|scaling hint"
 ```
 
 ### Threadripper socket power: PPT is settable, TDP/TjMax are read-only
