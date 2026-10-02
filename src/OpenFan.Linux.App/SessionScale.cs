@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Threading;
 using OpenFan.Core.Platform;
 
 namespace OpenFan.Linux.App;
@@ -12,20 +13,46 @@ namespace OpenFan.Linux.App;
 /// written it, giving scale 1.0 and a postage-stamp window that a manual launch does not have. An earlier attempt
 /// waited for the hint and fed AVALONIA_SCREEN_SCALE_FACTORS to the toolkit; builds containing it drew an invisible
 /// window on the real session (mapped, correctly sized, nothing painted) while rendering fine on Xvfb, so overriding
-/// the toolkit's own scaling is treated as suspect. Automatic mode here therefore changes nothing at all — the app
-/// behaves exactly as the known-good build — and the fix only engages when the user pins a number in Settings, which
-/// also makes the size identical at every boot instead of depending on hint timing.
+/// the toolkit's own scaling is treated as suspect. Automatic mode therefore only waits for the hint and lets Avalonia
+/// read it unaided; a pinned number in Settings additionally makes the size identical at every boot, independent of
+/// hint timing — which matters because automatic sizing was confirmed to work after an exit-and-restart but not
+/// straight from login autostart on the real machine.
 /// </remarks>
 internal static class SessionScale
 {
-    /// <summary>Sets AVALONIA_SCREEN_SCALE_FACTORS when the user pinned a scale. Automatic does nothing.</summary>
+    /// <summary>How long automatic mode waits for the session's DPI hint before starting anyway.</summary>
+    private const int HintWaitMs = 3000;
+
+    /// <summary>Waits for the session hint when automatic; sets AVALONIA_SCREEN_SCALE_FACTORS only when pinned.</summary>
     public static void Apply(double pinnedPercent)
     {
         // An explicit environment variable wins: it is how someone debugging this would override us.
         if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AVALONIA_SCREEN_SCALE_FACTORS")))
             return;
 
-        var connectors = pinnedPercent is > 0 and <= 400 ? DisplayConnectors.Detect() : [];
+        if (pinnedPercent is not (> 0 and <= 400))
+        {
+            // Automatic: give the compositor a moment to publish its DPI hint, then let Avalonia read it itself.
+            // Login autostart routinely beats GNOME to that hint, which is why automatic sizing works after an exit
+            // and restart but not from the login session. Waiting changes only timing — nothing here hands the
+            // toolkit a scale factor of our own, which is what an earlier version did and what drew an invisible
+            // window on the real session.
+            if (Environment.GetEnvironmentVariable("DISPLAY") is { Length: > 0 } && ReadXftDpi() is null)
+            {
+                var deadline = Environment.TickCount64 + HintWaitMs;
+                while (Environment.TickCount64 < deadline && ReadXftDpi() is null)
+                    Thread.Sleep(200);
+
+                if (ReadXftDpi() is { } dpi)
+                    Console.Error.WriteLine(
+                        $"openfan: waited for the session scaling hint ({dpi:0} dpi ~ " +
+                        $"{UiScale.PercentLabel(UiScale.FactorFromDpi(dpi) ?? 1)}); starting without it opens far too small");
+            }
+
+            return;   // never override the toolkit's own scaling in automatic mode
+        }
+
+        var connectors = DisplayConnectors.Detect();
         var factors = UiScale.FactorsFromPercent(pinnedPercent, connectors);
         if (factors is null) return;   // automatic, or a nonsense pin: leave the toolkit entirely alone
 
