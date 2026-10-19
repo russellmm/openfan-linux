@@ -50,6 +50,20 @@ public sealed class NvmlHelperClient(string? socketPath = null) : IFanActuator, 
     /// re-asserts), or stop keeping it with null.</summary>
     public bool TrySetCpuBootLimit(int? watts) => Transact(watts is null ? "cpuboot clear" : $"cpuboot {watts}");
 
+    /// <summary>Live cpufreq ceilings; null policy ids selects all, null maximum restores the hardware ceiling.</summary>
+    public bool TrySetCpuFrequencyMaximum(IReadOnlyList<int>? policyIds, long? maximumKHz)
+    {
+        var ids = policyIds is null ? "all" : string.Join(",", policyIds.Select(id => id.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        var value = maximumKHz?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "default";
+        return Transact($"cpufreq {ids} {value}");
+    }
+
+    /// <summary>Different ceilings for one or more policies, validated and applied as a single batch.</summary>
+    public bool TrySetCpuFrequencyMaximums(IReadOnlyDictionary<int, long> maximumsKHz) =>
+        Transact("cpufreqbatch " + string.Join(",", maximumsKHz.OrderBy(p => p.Key).Select(p =>
+            p.Key.ToString(System.Globalization.CultureInfo.InvariantCulture) + "=" +
+            p.Value.ToString(System.Globalization.CultureInfo.InvariantCulture))));
+
     private bool Transact(string command)
     {
         lock (_gate)

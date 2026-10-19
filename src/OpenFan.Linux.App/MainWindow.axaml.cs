@@ -186,7 +186,7 @@ public sealed partial class MainWindow : Window
     private string CpuSubtitle()
     {
         var s = _cpu.Read();
-        return $"{s.Cores} threads" + (s.PowerW is null ? " · no HSMP power source" : " · amd_hsmp");
+        return (_frequencyCores.Count > 0 ? $"{_frequencyCores.Count} cores · " : "") + $"{s.Cores} threads" + (s.PowerW is null ? " · no HSMP power source" : " · amd_hsmp");
     }
 
     private void EnsureCpuPage()
@@ -385,6 +385,7 @@ public sealed partial class MainWindow : Window
                 },
             },
         });
+        BuildCpuFrequencyPage();
     }
 
     private void UpdateCpuPage()

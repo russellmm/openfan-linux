@@ -17,22 +17,24 @@ var nvml = new NvmlBackend();
 // reason to refuse to start — but with neither capability there is nothing to serve.
 var cpu = new CpuPowerControl();
 var cpuAvailable = HsmpPowerReader.FindHsmpChipDirectory("/sys/class/hwmon") is not null;
-if (!nvml.Available && !cpuAvailable)
+var frequency = new CpuFrequencyControl();
+var frequencyAvailable = CpuFrequencyMonitor.ReadPolicies().Count > 0;
+if (!nvml.Available && !cpuAvailable && !frequencyAvailable)
 {
-    Console.Error.WriteLine("NVML unavailable and no amd_hsmp_hwmon chip — helper has no job; exiting.");
+    Console.Error.WriteLine("NVML, CPU PPT and cpufreq unavailable — helper has no job; exiting.");
     return 2;
 }
 
 // OPENFAN_HELPER_SOCKET also overrides the client side (NvmlHelperClient), so tests can use a private socket.
 var socketPath = Environment.GetEnvironmentVariable("OPENFAN_HELPER_SOCKET") ?? "/run/openfan/helper.sock";
 
-var server = new HelperServer(nvml, socketPath, nvml, cpu);
+var server = new HelperServer(nvml, socketPath, nvml, cpu, frequency);
 server.Start();
 server.ApplyGroupAccess("openfan");
 
 Console.WriteLine($"openfan-helper listening on {socketPath}" +
                   $" (NVML {(nvml.Available ? $"driver {nvml.DriverVersion}" : "unavailable")}," +
-                  $" CPU PPT {(cpuAvailable ? "available" : "unavailable")})");
+                  $" CPU PPT {(cpuAvailable ? "available" : "unavailable")}, cpufreq {(frequencyAvailable ? "available" : "unavailable")})");
 
 var stopping = new ManualResetEventSlim();
 using var sigTerm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, ctx =>

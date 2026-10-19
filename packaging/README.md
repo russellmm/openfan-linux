@@ -52,10 +52,10 @@ openfan-linux --apply-once hwmon:nct6799:10:pwm:4 40 --seconds 15
 
 The Linux NVIDIA driver gates NVML fan **writes** on root euid (reads are free), and so does the
 HSMP socket power limit. `openfan-helper` runs as a small root systemd service and exposes exactly
-two capabilities for members of the `openfan` group: setting/restoring NVIDIA fans, and setting the
-CPU socket power limit (PPT). hwmon PWM does **not** go through it (udev ACL covers that). The GUI
+three capabilities for members of the `openfan` group: setting/restoring NVIDIA fans, setting the
+CPU socket power limit (PPT), and setting cpufreq maximum-frequency policies. hwmon PWM does **not** go through it (udev ACL covers that). The GUI
 never needs root. It starts even with no NVIDIA driver present, as long as `amd_hsmp_hwmon` exists — and if
-**neither** NVML nor `amd_hsmp_hwmon` is available it exits with status 2 ("helper has no job") rather than serving a
+**none** of NVML, `amd_hsmp_hwmon`, or cpufreq policies is available it exits with status 2 ("helper has no job") rather than serving a
 socket that can do nothing.
 
 ## Install (after building the repo)
@@ -134,7 +134,7 @@ PY
 ```
 
 `openfan-helper` logs its capabilities at startup (`journalctl -u openfan-helper -n 3`), including
-whether CPU power control is available.
+whether CPU power control and cpufreq are available.
 
 ## Uninstall
 
@@ -146,3 +146,13 @@ sudo systemctl daemon-reload
 # and, if CPU boot persistence was installed:
 sudo tools/hsmp-control/packaging/install-persistence.sh --remove
 ```
+
+## CPU frequency ceilings
+
+Re-publish and reinstall the helper after adding CPU frequency support; an older helper reports `err unknown command`.
+
+The `cpufreq <comma-separated-policy-ids>|all <kHz>|default` command changes only `scaling_max_freq` under the fixed kernel cpufreq root. Numeric policy ids are validated, every policy is preflighted against `scaling_min_freq` and `cpuinfo_max_freq`, and readback is checked after a bounded wait for kernel policy work. Failed batches attempt rollback and explicitly report if any ceiling could not be restored. Requests are serialized across clients. Frequency ceilings intentionally remain after client disconnect, like power limits, and are not automatically re-applied after reboot. `default` means the current hardware maximum, including the existing boost setting; it does not restore a saved power profile.
+
+A core selection in the GUI includes the policies of both SMT threads. Policies can be shared on other systems, so the GUI lists affected CPUs. The helper does not accept arbitrary paths or execute shell commands for frequency control.
+
+`cpufreqbatch <policy-id>=<kHz>,...` applies different per-core ceilings in one transaction. The helper rejects malformed/duplicate ids and preflights the entire batch before writing, then verifies all readbacks and attempts rollback of the complete batch on failure. Old `cpufreq` requests remain supported. The GUI uses this command for edited per-core fields; both sibling policies receive the same value. See [the persistence plan](../docs/cpu-frequency-persistence-plan.md) for the proposed separate boot configuration and service; those are not installed by this UI change.

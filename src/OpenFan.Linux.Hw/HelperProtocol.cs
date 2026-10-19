@@ -16,6 +16,7 @@ namespace OpenFan.Linux.Hw;
 ///   power &lt;gpu-uuid&gt; &lt;W&gt;  -> ok | err &lt;reason&gt;
 ///   cpupower &lt;W&gt;|default   -> ok | err &lt;reason&gt;   (live PPT, 100-300 W, verified by readback)
 ///   cpuboot &lt;W&gt;|clear      -> ok | err &lt;reason&gt;   (keep-after-reboot override)
+///   cpufreq &lt;ids&gt;|all &lt;kHz&gt;|default -> ok | err &lt;reason&gt; (live policy ceilings, verified by readback)
 ///   quit                    -> bye
 ///
 /// Each connection owns what it set: on disconnect (clean or SIGKILL'd GUI) the
@@ -40,7 +41,7 @@ public interface ICpuPowerWriter
     string? LastError { get; }
 }
 
-public sealed class HelperSession(IFanActuator actuator, IGpuPowerWriter? power = null, ICpuPowerWriter? cpu = null)
+public sealed class HelperSession(IFanActuator actuator, IGpuPowerWriter? power = null, ICpuPowerWriter? cpu = null, ICpuFrequencyWriter? frequency = null)
 {
     private static readonly Regex NvmlFanId = new(
         @"^nvml:[A-Za-z0-9._-]+:fan:[0-9]+$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -114,6 +115,44 @@ public sealed class HelperSession(IFanActuator actuator, IGpuPowerWriter? power 
                     return $"err watts must be {CpuPowerControl.MinWatts}-{CpuPowerControl.MaxWatts}";
                 return cpu.SetBootLimitWatts(bootW) ? "ok" : $"err {cpu.LastError ?? "could not write boot limit"}";
 
+            case "cpufreqbatch" when parts.Length == 2:
+                if (frequency is not ICpuFrequencyBatchWriter batch)
+                    return "err individual frequency control not available; update openfan-helper";
+                var entries = parts[1].Split(',');
+                if (entries.Length > 4096) return "err too many frequency policies";
+                var maximums = new Dictionary<int, long>();
+                foreach (var entry in entries)
+                {
+                    var pair = entry.Split('=');
+                    if (pair.Length != 2 || !int.TryParse(pair[0], NumberStyles.None, CultureInfo.InvariantCulture, out var id) || id < 0 ||
+                        !long.TryParse(pair[1], NumberStyles.None, CultureInfo.InvariantCulture, out var value) || value <= 0 ||
+                        !maximums.TryAdd(id, value))
+                        return "err expected unique policy=kHz pairs";
+                }
+                lock (frequency)
+                    return batch.SetMaximums(maximums) ? "ok" : $"err {frequency.LastError ?? "frequency limits rejected"}";
+
+            case "cpufreq" when parts.Length == 3:
+                if (frequency is null) return "err cpu frequency control not available; update openfan-helper";
+                IReadOnlyList<int>? policyIds = null;
+                if (parts[1] != "all")
+                {
+                    var tokens = parts[1].Split(',');
+                    if (tokens.Length > 4096 || tokens.Any(t => !int.TryParse(t, NumberStyles.None,
+                            CultureInfo.InvariantCulture, out var id) || id < 0))
+                        return "err expected policy ids or all";
+                    policyIds = tokens.Select(t => int.Parse(t, CultureInfo.InvariantCulture)).Distinct().ToArray();
+                }
+                long? maximum = null;
+                if (parts[2] != "default")
+                {
+                    if (!long.TryParse(parts[2], NumberStyles.None, CultureInfo.InvariantCulture, out var khz) || khz <= 0)
+                        return "err expected positive frequency in kHz or default";
+                    maximum = khz;
+                }
+                lock (frequency)
+                    return frequency.SetMaximum(policyIds, maximum) ? "ok" : $"err {frequency.LastError ?? "frequency limit rejected"}";
+
             case "quit":
                 return "bye";
 
@@ -136,7 +175,7 @@ public sealed class HelperSession(IFanActuator actuator, IGpuPowerWriter? power 
 /// tests run it against a fake actuator; openfan-helper is a thin root wrapper.
 /// </summary>
 public sealed class HelperServer(IFanActuator actuator, string socketPath, IGpuPowerWriter? power = null,
-    ICpuPowerWriter? cpu = null) : IAsyncDisposable
+    ICpuPowerWriter? cpu = null, ICpuFrequencyWriter? frequency = null) : IAsyncDisposable
 {
     private readonly Socket _listener = new(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
     private readonly CancellationTokenSource _cts = new();
@@ -209,7 +248,7 @@ public sealed class HelperServer(IFanActuator actuator, string socketPath, IGpuP
 
     private async Task ServeClientAsync(Socket client)
     {
-        var session = new HelperSession(actuator, power, cpu);
+        var session = new HelperSession(actuator, power, cpu, frequency);
         try
         {
             using (client)

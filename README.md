@@ -111,6 +111,20 @@ deterministic choice when sizing has to be right at login. To see what happened 
 journalctl --user -u app-openfan@autostart.service -b | grep -E "window scale|scaling hint"
 ```
 
+### CPU core clocks and frequency ceilings
+
+The CPU tab includes a compact, live table with one row per **physical core** (32 rows on the 9970X), grouping its SMT threads by kernel socket/core topology. Current, minimum, maximum, average and the active ceiling are shown in MHz. Sampling runs once per second in the background while the page is visible; Reset statistics starts a new minimum/maximum/average window. Hover over a current reading for each sibling thread's clock and source.
+
+Current is the highest available sibling reading, preferring `cpuinfo_cur_freq`, then `scaling_cur_freq`, then `/proc/cpuinfo`. Idle threads can retain an earlier reading. These are sampled kernel-reported clocks, **not effective clocks** or a continuous hardware trace. Missing readings show a dash; offline threads are excluded from the current clock. Unknown topology is kept as separate CPU rows rather than guessed.
+
+Use **All cores** to apply one maximum clock to every cpufreq policy. Check **Set individual cores** to disable the all-core controls and enable the **Set MHz** box beside every core. The boxes populate with current caps, preserve unfinished edits across refreshes, and apply only edited cores through **Apply individual caps**. Each edit targets both sibling policies; conflicting edits to a shared policy are rejected. The GUI stays unprivileged: writes go through the updated `openfan-helper`. It validates the entire selection against current minimum and hardware maximum limits before writing, waits up to 500 ms for asynchronous kernel readback, and attempts to restore previous ceilings if a write or verification fails. **Hardware maximum** restores each selected policy's currently advertised `cpuinfo_max_freq`; it does not enable boost or change governors, EPP, minimum clocks, PPT, or BIOS settings.
+
+Frequency caps are live until reboot or another power tool changes them. They are not saved in OpenFan configurations or automatically re-applied. No extra monitoring package is required. The 9970X currently exposes `amd-pstate-epp` policies for all 64 threads; with per-policy boost off, the available ceiling is 4,000 MHz. Real-machine verification of a 3,000 MHz request measured about 3,013 MHz under load in `turbostat`, so hardware frequency steps and clock measurements can differ slightly from the requested policy ceiling.
+
+The proposed reboot-persistence design is documented in [the persistence plan](docs/cpu-frequency-persistence-plan.md); persistence is not enabled yet.
+
+Interface reference: [Linux CPUFreq documentation](https://docs.kernel.org/admin-guide/pm/cpufreq.html).
+
 ### Threadripper socket power: PPT is settable, TDP/TjMax are read-only
 
 The CPU tab has a **Socket power limit (PPT)** box (100–300 W) with a *keep after reboot* checkbox —
