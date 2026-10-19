@@ -7,6 +7,7 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using OpenFan.Core.Hardware;
+using OpenFan.Linux.Hw;
 
 namespace OpenFan.Linux.App;
 
@@ -40,41 +41,16 @@ public sealed partial class MainWindow
     // "nvme"); the model file sits behind the device symlink and reads through it directly. The PCI address
     // comes from that same resolved path — two drives of the same model are otherwise indistinguishable,
     // and unlike the hwmon index the address is stable across reboots.
-    private static Lazy<Dictionary<string, (string Model, string PciBus)>> NvmeLabels = new(ReadNvmeLabels);
-    private static Dictionary<string, (string Model, string PciBus)> ReadNvmeLabels()
+    private static Lazy<Dictionary<string, (string Model, string PciBus, string Description)>> NvmeLabels = new(ReadNvmeLabels);
+    private static Dictionary<string, (string Model, string PciBus, string Description)> ReadNvmeLabels()
     {
-        var map = new Dictionary<string, (string, string)>();
-        try
+        var map = new Dictionary<string, (string, string, string)>();
+        foreach (var d in NvmeDevices.Discover())
         {
-            foreach (var hm in Directory.GetDirectories("/sys/class/hwmon"))
-            {
-                string chip;
-                try { chip = File.ReadAllText(Path.Combine(hm, "name")).Trim(); } catch { continue; }
-                if (chip != "nvme")
-                    continue;
-
-                var idx = Path.GetFileName(hm).Replace("hwmon", "");
-
-                // The hwmon `device` link is relative and the class directories are themselves links, so a
-                // fully resolved path is unreliable here. The link's *name* is all that is needed: it is the
-                // NVMe controller (nvmeN), whose class directory holds model and PCI address as plain files.
-                string controller;
-                try
-                {
-                    controller = new DirectoryInfo(Path.Combine(hm, "device")).ResolveLinkTarget(false)?.Name ?? "";
-                }
-                catch { controller = ""; }
-                if (controller.Length == 0) continue;
-
-                string model = "", pci = "";
-                try { model = File.ReadAllText($"/sys/class/nvme/{controller}/model").Trim(); } catch { }
-                try { pci = GpuFormat.CompactPciBus(File.ReadAllText($"/sys/class/nvme/{controller}/address").Trim()); } catch { }
-
-                if (model.Length > 0 || pci.Length > 0)
-                    map[idx] = (model, pci);
-            }
+            var value = (d.Model, GpuFormat.CompactPciBus(d.Pci), d.Description);
+            map["pci:" + Uri.EscapeDataString(d.Pci)] = value;
+            if (d.HwmonPath is { } path) map[Path.GetFileName(path).Replace("hwmon", "")] = value;
         }
-        catch { }
         return map;
     }
 
@@ -144,6 +120,21 @@ public sealed partial class MainWindow
             foreach (var device in devices)
             {
                 var inner = new StackPanel();
+                if (device.Key.StartsWith("nvme:") && NvmeLabels.Value.TryGetValue(device.Key[5..], out var nvmeLabel))
+                {
+                    var description = new TextBlock { Text = devices.Length == 1 ? nvmeLabel.Model + " · " + nvmeLabel.Description : nvmeLabel.Description, FontSize = 11, Foreground = Secondary,
+                        TextWrapping = TextWrapping.Wrap, Margin = new Thickness(5, 2, 5, 6) };
+                    inner.Children.Add(description);
+                    if (device.Any(i => i.Backend == "nvme-health"))
+                    {
+                        var healthStatus = new TextBlock { FontSize = 11, Foreground = Secondary, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(5, 0, 5, 6) };
+                        inner.Children.Add(healthStatus);
+                        _sensorValueUpdaters.Add((device.First().Id, healthStatus, _ =>
+                        {
+                            var text = _app.NvmeHealth.Status(device.Key); if (healthStatus.Text != text) healthStatus.Text = text;
+                        }));
+                    }
+                }
                 inner.Children.Add(BuildSensorTableHeader());
                 foreach (var item in device.OrderBy(i => i.Kind).ThenBy(i => SensorSortKey(i.Name), StringComparer.OrdinalIgnoreCase))
                     inner.Children.Add(BuildSensorRow(item));
@@ -310,29 +301,34 @@ public sealed partial class MainWindow
         var current = SensorCell("—", current: true); var minimum = SensorCell("—");
         var maximum = SensorCell("—"); var average = SensorCell("—");
         var unit = item.Unit.Length > 0 ? item.Unit : item.Kind switch { HardwareKind.Temperature => "°C", HardwareKind.Tach => "RPM", _ => "%" };
-        var format = item.Kind switch
+        var format = item.Unit is "MB/s" or "TB" ? "N3" : item.Unit == "GB" || item.Backend == "nvme-activity" ? "N1" : item.Kind switch
         {
             HardwareKind.Voltage or HardwareKind.Current or HardwareKind.Energy => "N3",
             HardwareKind.Temperature or HardwareKind.Power or HardwareKind.Humidity or HardwareKind.Data => "N1",
             _ => "N0",
         };
-        string Format(double? value) => value?.ToString(format, CultureInfo.CurrentCulture) ?? "—";
+        string Format(double? value) => item.Kind == HardwareKind.Counter && item.Unit != "GB"
+            ? SensorCountFormat.Format(value) : value?.ToString(format, CultureInfo.CurrentCulture) ?? "—";
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions(SensorColumns), MinHeight = 26,
             Children = { nameHost, Col(current, 1), Col(minimum, 2), Col(maximum, 3), Col(average, 4), Col(SensorCell(unit), 5) } };
-        var thresholds = item.Kind == HardwareKind.Temperature && item.Id.StartsWith("hwmon:spd5118:", StringComparison.Ordinal)
+        var thresholds = item.Kind == HardwareKind.Temperature && (item.Id.StartsWith("hwmon:spd5118:", StringComparison.Ordinal) || item.Id.StartsWith("hwmon:nvme:", StringComparison.Ordinal))
             ? DramTemperatureLimits.Suffixes.Where(s => _app.Inventory.Any(i => i.Kind == HardwareKind.TemperatureLimit && i.Id == DramTemperatureLimits.Id(item.Id, s))).ToArray()
             : [];
         TextBlock? limitText = null;
         if (thresholds.Length > 0)
         {
             limitText = new TextBlock { FontSize = 11, Foreground = Secondary, Margin = new Thickness(5, 0, 5, 5), TextWrapping = TextWrapping.Wrap };
-            ToolTip.SetTip(limitText, "Configured SPD hub alarm thresholds. These are separate from the measured Min/Max columns and are shown read-only.");
+            ToolTip.SetTip(limitText, "Drive/module alarm thresholds, separate from measured Min/Max columns and shown read-only. Only valid composite NVMe limits are shown.");
             grid.RowDefinitions = new RowDefinitions("Auto,Auto");
             Grid.SetRow(limitText, 1); Grid.SetColumnSpan(limitText, 6); grid.Children.Add(limitText);
         }
         var row = new Border { Child = grid, BorderBrush = CardBorder, BorderThickness = new Thickness(0, 0, 0, 1) };
         static void Set(TextBlock cell, string text) { if (cell.Text != text) cell.Text = text; }
         ToolTip.SetTip(current, "Valid readings since launch or Reset statistics. Hidden/collapsed groups pause optional sampling.");
+        if (item.Kind == HardwareKind.Counter && item.Unit != "GB")
+            current.PointerEntered += (_, _) => ToolTip.SetTip(current,
+                (_app.SensorStatistics.Get(item.Id).Current?.ToString("N0", CultureInfo.CurrentCulture) ?? "—") + " " + unit +
+                "\nM = million, B = billion, T = trillion.\n" + item.Details);
         _sensorValueUpdaters.Add((item.Id, row, sample =>
         {
             Set(current, Format(sample.Current)); Set(minimum, Format(sample.Minimum)); Set(maximum, Format(sample.Maximum));

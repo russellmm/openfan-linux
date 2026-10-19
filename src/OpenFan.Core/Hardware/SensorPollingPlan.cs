@@ -6,12 +6,14 @@ namespace OpenFan.Core.Hardware;
 public static class SensorPollingPlan
 {
     public static readonly string[] GroupOrder =
-        ["CPU", "GPU", "Motherboard", "Chipset / ASUS EC", "AMD HSMP (SoC)", "Memory temperatures", "Memory (ECC)", "Storage (NVMe)", "Network", "Other"];
+        ["CPU", "GPU", "Motherboard", "Chipset / ASUS EC", "AMD HSMP (SoC)", "Memory temperatures", "Memory (ECC)", "Storage (NVMe)", "Drive activity (NVMe)", "Drive health (NVMe)", "Network", "Other"];
 
     public static string Group(HardwareItem item)
     {
         if (item.Backend == "edac") return "Memory (ECC)";
         if (item.Backend == "nvml") return "GPU";
+        if (item.Backend == "nvme-health") return "Drive health (NVMe)";
+        if (item.Backend == "nvme-activity") return "Drive activity (NVMe)";
         var chip = item.Id.Split(':').ElementAtOrDefault(1) ?? "";
         return chip switch
         {

@@ -425,7 +425,7 @@ public partial class MainWindow
                     ? $"{chipInstance} {friendly} · {model}"
                     : $"{chipInstance} · {friendly}";
             }
-            temps.Items.Add(AddItem(header, item.Id, item.Id.StartsWith("hwmon:spd5118:", StringComparison.Ordinal) ? _app.SensorLabel(item) : null));
+            temps.Items.Add(AddItem(header, item.Id, item.Id.StartsWith("hwmon:spd5118:", StringComparison.Ordinal) || item.Id.StartsWith("hwmon:nvme:", StringComparison.Ordinal) ? _app.SensorLabel(item) : null));
         }
         if (temps.Items.Count == 0)
             temps.Items.Add(new MenuItem { Header = "no temperature sensors", IsEnabled = false });

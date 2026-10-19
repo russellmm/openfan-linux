@@ -12,6 +12,19 @@ public class HelperSocketTests
         Path.Combine(Path.GetTempPath(), $"openfan-test-{Guid.NewGuid():N}.sock");
 
     [Fact]
+    public async Task Immediate_shutdown_drains_every_accepted_session_before_returning()
+    {
+        for (var i = 0; i < 25; i++)
+        {
+            var actuator = new RecordingActuator(); var server = new HelperServer(actuator, TempSocketPath()); server.Start();
+            using var client = new NvmlHelperClient(server.SocketPath);
+            Assert.True(client.SetPercent(FanId, 55));
+            await server.DisposeAsync();
+            Assert.Contains(FanId, actuator.Restores); Assert.False(File.Exists(server.SocketPath));
+        }
+    }
+
+    [Fact]
     public async Task Client_roundtrips_ping_set_default_over_socket()
     {
         var actuator = new RecordingActuator();

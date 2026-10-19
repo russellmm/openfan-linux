@@ -20,13 +20,17 @@ measurement types already exported by the kernel. The revised architecture is:
 | libsensors | Board/CPU/ASUS EC/NVMe/network measurements and status flags | Normal user, direct library calls |
 | NVML | NVIDIA temperatures, fan duty/RPM, clocks, utilization, power/limit and VRAM | Normal user, direct library calls |
 | EDAC | Corrected/uncorrected memory error counters, controller and kernel rank groups | Normal user, kernel files |
+| Linux block statistics | NVMe read/write rates, activity and totals since device start | Normal user, selected whole-namespace stat files |
+| NVMe SMART | Endurance/spare, lifetime transfers, power/error counts and thermal history | Fixed read-only helper endpoint; independent 30-second background batch |
 | hwmon PWM | Duty readback; existing validated fan writer remains separate | Read normally; writes use existing udev ACL |
 
 No `sensors`, `nvidia-smi`, shell or bus-scanning process is launched for routine measurements.
 Missing libraries/configuration errors visibly select the original sysfs temperature/fan fallback.
 No new generic sensor-write capability was added.
 
-Read-only sampling runs as one background batch, with at most one outstanding poll. Results are
+Regular read-only sampling runs as one background batch, with at most one outstanding poll.
+NVMe SMART uses a separate background batch every 30 seconds and its own helper connection,
+so a slow drive cannot hold the fan client's socket lock or delay the regular sample. Results are
 published on the UI thread; the fan controller, table, cards and applicable HUD readings share that
 sample. Profile changes during a read defer inventory refresh and discard that old sample. Shutdown
 drains the read batch before disposing native libraries. Inventory discovery runs every five seconds
@@ -42,16 +46,21 @@ integrated SPD5118 hubs use physical controller/address identities instead of bo
 
 ## Actual coverage on this machine
 
-The former Sensors page had **60 rows**. With the October 19 DDR5 integration, the page has
-**136 ordinary rows**, plus **52 optional status/alarm rows** (188 total). Counts are inventory entries, including fan duty readbacks, configured
+The former Sensors page had **60 rows**. With the October 19 DDR5 and NVMe updates, the page has
+**136 ordinary hardware rows**, **35 drive-activity rows** and **100 SMART health rows**, plus
+**52 optional status/alarm rows**: **323 table rows** in total across the available groups.
+Counts are inventory entries, including fan duty readbacks, configured
 power limits, fixed VRAM capacity, raw/unverified motherboard channels and counters; they are not
-188 independently calibrated physical sensors. A native read-only inventory sample returned a value
+independently calibrated physical sensors. A native read-only inventory sample returned a value
 for every discovered library/EDAC/NVML channel. Raw PWM readback is provided separately.
 
 Another 16 DDR5 alarm-threshold readbacks (four per module) appear beneath the four memory
 temperature rows rather than as extra measurement rows. They use a distinct TemperatureLimit
 kind, stay out of temperature source pickers, and pause with the memory group. These configured
 Low/High/Critical low/Critical high values are independent of the sampled Min/Max columns.
+Ten additional NVMe composite high/critical threshold readbacks appear beneath the five composite
+temperature rows. Generic internal probes are explicitly unmapped; unused sentinel limits are excluded.
+See [NVMe details](nvme-sensors.md) for identity, cadence, units, failure handling and Linux/Windows counter differences.
 
 | Category | Rows | Notes |
 | --- | ---: | --- |
@@ -64,6 +73,8 @@ Low/High/Critical low/Critical high values are independent of the sampled Min/Ma
 | GPU load | 6 | GPU and memory-controller utilization per card |
 | GPU clocks | 9 | Graphics, SM and memory MHz per card |
 | GPU memory | 6 | Used/total GiB per card |
+| NVMe drive activity | 35 | Seven metrics per drive: read/write rates, activity and since-start totals |
+| NVMe SMART health | 100 | Twenty metrics per drive: endurance/spare, lifetime counters, warnings and thermal history |
 | Optional status/alarm flags | 52 | Kernel-reported states, including 16 DDR5 flags; thresholds may be unconfigured |
 
 The reader also understands current, energy, humidity and generic hwmon frequency measurements when
@@ -146,7 +157,7 @@ and resistor-divider scaling require verified information.
 | --- | --- |
 | Physical DIMM slot mapping | Four SPD hub temperatures now work through the DesignWare adapters. Controller/address identities are verified; mapping them to physical slot letters remains open. See the updated RAM investigation. |
 | Exact board rail names/scaling | Verify against board documentation, firmware or a Windows sensor export, then add a reviewed libsensors configuration. |
-| SSD health/wear, reads/writes, spare capacity, media errors | NVMe temperatures are available; SMART health is a separate interface. Add a narrowly scoped read-only helper/SMART reader, discover supported fields and poll health less often. |
+| Vendor-specific SSD data / physical probe mapping | Standard NVMe SMART health and Linux activity now work. Controller/NAND probe mapping, vendor NAND writes and physical slot names still require verified model/firmware documentation. |
 | Package/core energy and derived watts | AMD RAPL counters exist but are root-readable here. Add a fixed read-only helper endpoint with wrap/reset handling; do not loosen all sysfs permissions. |
 | GPU memory-junction/hotspot | `nvidia-smi` memory temperature reports N/A on these cards/driver. Investigate documented NVML thermal fields before concluding they are inaccessible; do not relabel core temperature as hotspot. |
 | Detailed AMD per-core temperature/power/voltage, effective clocks | Standard k10temp/cpufreq do not provide Windows-equivalent per-core telemetry. Assess model/protocol-specific documented HSMP/SMU interfaces and validate units/support before adding them. |

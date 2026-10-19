@@ -32,7 +32,7 @@ public sealed class LibSensorsBackend(SourceSettings? sources = null, ILibSensor
         {
             if (Sources?.DisabledHwmonChips.Any(c => c.Equals(channel.Chip, StringComparison.OrdinalIgnoreCase)) == true) continue;
             var item = Describe(channel);
-            if (item is not null) _channels.Add((DramSensorIdentity.Describe(item, channel.ChipPath), channel));
+            if (item is not null) _channels.Add((NvmeDevices.Describe(DramSensorIdentity.Describe(item, channel.ChipPath), channel.ChipPath), channel));
         }
         return _channels.Select(c => c.Item).ToArray();
     }
@@ -56,8 +56,9 @@ public sealed class LibSensorsBackend(SourceSettings? sources = null, ILibSensor
         var sub = channel.Subfeature;
         var status = sub.EndsWith("_alarm", StringComparison.Ordinal) || sub.EndsWith("_fault", StringComparison.Ordinal);
         var limit = sub.EndsWith("_cap", StringComparison.Ordinal);
-        var temperatureLimit = channel.Chip == "spd5118" && channel.FeatureType == 2 &&
-            DramTemperatureLimits.Suffixes.Any(s => sub == channel.Feature + "_" + s);
+        var temperatureLimit = channel.FeatureType == 2 &&
+            (channel.Chip == "spd5118" && DramTemperatureLimits.Suffixes.Any(s => sub == channel.Feature + "_" + s) ||
+             channel.Chip == "nvme" && channel.Feature == "temp1" && sub is "temp1_max" or "temp1_crit");
         if (!status && !limit && !temperatureLimit && !sub.EndsWith("_input", StringComparison.Ordinal) &&
             !sub.EndsWith("_average", StringComparison.Ordinal) && channel.FeatureType != 0x10) return null;
         var kind = status ? HardwareKind.Status : temperatureLimit ? HardwareKind.TemperatureLimit : channel.FeatureType switch

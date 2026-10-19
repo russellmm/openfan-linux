@@ -80,11 +80,11 @@ public sealed partial class HwmonBackend : ISensorBackend, IFanActuator
                         Group = group,
                         CanSet = false,
                     };
-                    var item = DramSensorIdentity.Describe(raw, dir);
+                    var item = NvmeDevices.Describe(DramSensorIdentity.Describe(raw, dir), dir);
                     _items.Add(item);
                     if (item.Id != raw.Id) _dramReadIds[item.Id] = raw.Id;
-                    if (chip == "spd5118")
-                        foreach (var suffix in DramTemperatureLimits.Suffixes)
+                    if (chip == "spd5118" || chip == "nvme" && n == 1)
+                        foreach (var suffix in chip == "nvme" ? new[] { "max", "crit" } : DramTemperatureLimits.Suffixes)
                         {
                             if (!File.Exists(Path.Combine(dir, $"temp{n}_{suffix}"))) continue;
                             var rawLimit = new HardwareItem
@@ -94,7 +94,7 @@ public sealed partial class HwmonBackend : ISensorBackend, IFanActuator
                                 Backend = BackendName, Group = group, CanSet = false, Unit = "°C", Source = "sysfs",
                                 Details = $"temp{n}_{suffix} · configured alarm threshold, not a measured minimum/maximum or a guaranteed safe operating temperature",
                             };
-                            var limitItem = DramSensorIdentity.Describe(rawLimit, dir);
+                            var limitItem = NvmeDevices.Describe(DramSensorIdentity.Describe(rawLimit, dir), dir);
                             _items.Add(limitItem);
                             if (limitItem.Id != rawLimit.Id) _dramReadIds[limitItem.Id] = rawLimit.Id;
                         }

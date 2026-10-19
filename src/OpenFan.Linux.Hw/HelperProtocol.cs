@@ -41,7 +41,7 @@ public interface ICpuPowerWriter
     string? LastError { get; }
 }
 
-public sealed class HelperSession(IFanActuator actuator, IGpuPowerWriter? power = null, ICpuPowerWriter? cpu = null, ICpuFrequencyWriter? frequency = null)
+public sealed class HelperSession(IFanActuator actuator, IGpuPowerWriter? power = null, ICpuPowerWriter? cpu = null, ICpuFrequencyWriter? frequency = null, INvmeSmartReader? storage = null)
 {
     private static readonly Regex NvmlFanId = new(
         @"^nvml:[A-Za-z0-9._-]+:fan:[0-9]+$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -63,6 +63,17 @@ public sealed class HelperSession(IFanActuator actuator, IGpuPowerWriter? power 
         {
             case "ping":
                 return "ok";
+
+            case "nvmesmart" when parts.Length == 3:
+                if (storage is null) return "err NVMe health unavailable; update openfan-helper";
+                if (!Regex.IsMatch(parts[1], @"^nvme[0-9]{1,8}$", RegexOptions.CultureInvariant) ||
+                    !Regex.IsMatch(parts[2], @"^[0-9a-f]{64}$", RegexOptions.CultureInvariant)) return "err invalid NVMe identity";
+                try
+                {
+                    var data = storage.Read(parts[1], parts[2]);
+                    return data.Length == 512 ? "ok " + Convert.ToBase64String(data) : "err invalid NVMe log length";
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return "err " + ex.Message; }
 
             case "set" when parts.Length == 3:
                 if (!NvmlFanId.IsMatch(parts[1]))
@@ -175,12 +186,13 @@ public sealed class HelperSession(IFanActuator actuator, IGpuPowerWriter? power 
 /// tests run it against a fake actuator; openfan-helper is a thin root wrapper.
 /// </summary>
 public sealed class HelperServer(IFanActuator actuator, string socketPath, IGpuPowerWriter? power = null,
-    ICpuPowerWriter? cpu = null, ICpuFrequencyWriter? frequency = null) : IAsyncDisposable
+    ICpuPowerWriter? cpu = null, ICpuFrequencyWriter? frequency = null, INvmeSmartReader? storage = null) : IAsyncDisposable
 {
     private readonly Socket _listener = new(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
     private readonly CancellationTokenSource _cts = new();
     private readonly List<Task> _sessions = [];
     private readonly object _sessionsLock = new();
+    private Task? _acceptTask;
 
     public string SocketPath { get; } = socketPath;
 
@@ -195,7 +207,7 @@ public sealed class HelperServer(IFanActuator actuator, string socketPath, IGpuP
         _listener.Bind(new UnixDomainSocketEndPoint(socketPath));
         _listener.Listen(8);
 
-        _ = AcceptLoopAsync();
+        _acceptTask = AcceptLoopAsync();
     }
 
     /// <summary>Owner/group bits for the socket: 0660 root:openfan (caller must be root).</summary>
@@ -239,16 +251,20 @@ public sealed class HelperServer(IFanActuator actuator, string socketPath, IGpuP
             {
                 return; // listener closed
             }
+            catch (ObjectDisposedException) { return; }
 
             var task = ServeClientAsync(client);
             lock (_sessionsLock)
+            {
+                _sessions.RemoveAll(t => t.IsCompleted);
                 _sessions.Add(task);
+            }
         }
     }
 
     private async Task ServeClientAsync(Socket client)
     {
-        var session = new HelperSession(actuator, power, cpu, frequency);
+        var session = new HelperSession(actuator, power, cpu, frequency, storage);
         try
         {
             using (client)
@@ -301,7 +317,12 @@ public sealed class HelperServer(IFanActuator actuator, string socketPath, IGpuP
 
         try
         {
-            await Task.WhenAll(_sessions.ToArray());
+            // A client can receive its reply before AcceptLoop registers the serving task.
+            // Join the accept loop first, then snapshot: no accepted session can escape teardown.
+            if (_acceptTask is not null) await _acceptTask;
+            Task[] sessions;
+            lock (_sessionsLock) sessions = _sessions.ToArray();
+            await Task.WhenAll(sessions);
         }
         catch (OperationCanceledException)
         {

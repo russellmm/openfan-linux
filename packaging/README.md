@@ -11,6 +11,12 @@ these native libraries; it does not bundle them. If libsensors is unavailable or
 fails, the GUI reports the fallback and retains the original sysfs temperature/fan reader.
 NVIDIA telemetry continues through the driver-provided NVML library.
 
+NVMe temperatures/activity use normal-user kernel interfaces. NVMe SMART requires the updated
+`openfan-helper` with the fixed `nvmesmart` read-only command; no nvme-cli/smartctl dependency.
+The client selects only an enumerated controller and identity hash. The helper accepts no arbitrary
+device paths or admin commands and never changes drive settings. SMART runs in a separate slow
+background batch, independent of GPU fan-control requests. See [NVMe sensor details](../docs/nvme-sensors.md).
+
 For this machine's working DDR5 SPD hub startup binding, see
 [dram-temps/README.md](dram-temps/README.md). OpenFan reads already-bound sensors without privilege;
 the optional binding service is separate and specific to the verified motherboard setup.

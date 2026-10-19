@@ -19,16 +19,17 @@ var cpu = new CpuPowerControl();
 var cpuAvailable = HsmpPowerReader.FindHsmpChipDirectory("/sys/class/hwmon") is not null;
 var frequency = new CpuFrequencyControl();
 var frequencyAvailable = CpuFrequencyMonitor.ReadPolicies().Count > 0;
-if (!nvml.Available && !cpuAvailable && !frequencyAvailable)
+using var storage = new NativeNvmeSmartReader();
+if (!nvml.Available && !cpuAvailable && !frequencyAvailable && NvmeDevices.Discover().Count == 0)
 {
-    Console.Error.WriteLine("NVML, CPU PPT and cpufreq unavailable — helper has no job; exiting.");
+    Console.Error.WriteLine("NVML, CPU PPT, cpufreq and NVMe unavailable — helper has no job; exiting.");
     return 2;
 }
 
 // OPENFAN_HELPER_SOCKET also overrides the client side (NvmlHelperClient), so tests can use a private socket.
 var socketPath = Environment.GetEnvironmentVariable("OPENFAN_HELPER_SOCKET") ?? "/run/openfan/helper.sock";
 
-var server = new HelperServer(nvml, socketPath, nvml, cpu, frequency);
+var server = new HelperServer(nvml, socketPath, nvml, cpu, frequency, storage);
 server.Start();
 server.ApplyGroupAccess("openfan");
 

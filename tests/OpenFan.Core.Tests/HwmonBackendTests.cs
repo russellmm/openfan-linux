@@ -75,7 +75,7 @@ public sealed class HwmonBackendTests : IDisposable
 
         items.Single(i => i.Id == "hwmon:k10temp:5:temp:1").Name.Should().Be("Tctl");
         items.Single(i => i.Id == "hwmon:nct6799:10:fan:1").Name.Should().Be("Fan 1"); // no fan label on this chip
-        items.Single(i => i.Id == "hwmon:nvme:0:temp:1").Name.Should().Be("Temperature #1");
+        items.Single(i => i.Id == "hwmon:nvme:0:temp:1").Name.Should().Be("Drive temperature (composite)");
     }
 
     [Fact]

@@ -21,8 +21,10 @@ public sealed class FanApp : IDisposable
     private bool _tickInFlight, _disposed, _forceInventoryRefresh;
     private Task<Dictionary<string, double?>>? _pollTask;
     private readonly EdacBackend _edac = new();
+    public NvmeHealthBackend NvmeHealth { get; } = new();
+    private readonly NvmeActivityBackend _nvmeActivity = new();
     public string SensorReaderDescription => (_usingLibSensors ? "libsensors" : "sysfs fallback") +
-        (_usingNvml ? " + NVML" : "") + (_edac.Available ? " + EDAC" : "");
+        (_usingNvml ? " + NVML" : "") + (_edac.Available ? " + EDAC" : "") + (NvmeHealth.Available ? " + NVMe" : "");
     public string? SensorReaderError => LibSensors.Error;
     public NvmlBackend Nvml { get; } = new();
     public NvmlHelperClient NvmlHelper { get; } = new();
@@ -232,8 +234,17 @@ public sealed class FanApp : IDisposable
     /// <summary>Tach paired with a control for display: nvml fan0↔tach0, hwmon pwm4↔fan4.</summary>
     /// <summary>Id of the tach paired with a fan control (nvml:{uuid}:tach:n / hwmon …:fan:n).</summary>
     /// <summary>Display name for a sensor: user alias when set, hardware name otherwise.</summary>
-    public string SensorLabel(HardwareItem item) =>
-        Settings.SensorAliases.GetValueOrDefault(item.Id, item.Name);
+    public string SensorLabel(HardwareItem item)
+    {
+        if (Settings.SensorAliases.TryGetValue(item.Id, out var alias)) return alias;
+        var parts = item.Id.Split(':');
+        if (parts.Length > 2 && parts[0] == "hwmon" && parts[1] == "nvme")
+        {
+            var device = NvmeHealth.Devices.FirstOrDefault(d => d.HwmonPath is { } path && Path.GetFileName(path) == "hwmon" + parts[2]);
+            if (device is not null) return item.Name + " · " + device.Model + " " + device.Pci;
+        }
+        return item.Name;
+    }
 
     public string PairedTachId(HardwareItem control)
     {
@@ -260,7 +271,7 @@ public sealed class FanApp : IDisposable
         var libraryItems = LibSensors.Available ? LibSensors.Discover() : [];
         _usingLibSensors = LibSensors.Available && LibSensors.Error is null;
         var boardItems = _usingLibSensors ? libraryItems.Concat(Hwmon.DiscoverControls()) : Hwmon.Discover();
-        var merged = InventoryMerger.Merge(boardItems.Concat(_edac.Discover()), _usingNvml ? Nvml.Discover() : []);
+        var merged = InventoryMerger.Merge(boardItems.Concat(_edac.Discover()).Concat(NvmeHealth.Discover()).Concat(_nvmeActivity.Discover()), _usingNvml ? Nvml.Discover() : []);
         var fingerprint = string.Join('|', merged.Select(i => $"{i.Id}\t{i.Name}\t{i.Group}").OrderBy(x => x, StringComparer.Ordinal));
         if (fingerprint != _fingerprint)
         {
@@ -308,6 +319,8 @@ public sealed class FanApp : IDisposable
         if (_usingLibSensors) LibSensors.ReadInto(readings, requested);
         if (_usingNvml) Nvml.ReadInto(readings, requested);
         _edac.ReadInto(readings, requested);
+        NvmeHealth.ReadInto(readings, requested);
+        _nvmeActivity.ReadInto(readings, requested);
         if (requested.Contains("cpu:power:w") || requested.Contains("cpu:pptcap:w"))
         {
             var power = new HsmpPowerReader().Read();
@@ -444,6 +457,8 @@ public sealed class FanApp : IDisposable
         Hwmon.Dispose();
         LibSensors.Dispose();
         _edac.Dispose();
+        NvmeHealth.Dispose();
+        _nvmeActivity.Dispose();
         Nvml.Dispose();
     }
 
