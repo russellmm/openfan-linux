@@ -11,6 +11,10 @@ these native libraries; it does not bundle them. If libsensors is unavailable or
 fails, the GUI reports the fallback and retains the original sysfs temperature/fan reader.
 NVIDIA telemetry continues through the driver-provided NVML library.
 
+For this machine's working DDR5 SPD hub startup binding, see
+[dram-temps/README.md](dram-temps/README.md). OpenFan reads already-bound sensors without privilege;
+the optional binding service is separate and specific to the verified motherboard setup.
+
 ```sh
 sudo apt install libsensors5 lm-sensors
 sudo groupadd -f openfan

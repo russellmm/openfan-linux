@@ -208,7 +208,7 @@ public sealed class SettingsStore
             Directory.CreateDirectory(dir);
         var tmp = _path + ".tmp";
         File.WriteAllText(tmp, JsonSerializer.Serialize(settings, JsonOptions));
-        File.Copy(tmp, _path, overwrite: true);
-        File.Delete(tmp);
+        // Replace in one same-directory rename: a crash cannot leave a partly copied settings file.
+        File.Move(tmp, _path, overwrite: true);
     }
 }

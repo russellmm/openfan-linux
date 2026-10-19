@@ -32,7 +32,7 @@ public sealed class LibSensorsBackend(SourceSettings? sources = null, ILibSensor
         {
             if (Sources?.DisabledHwmonChips.Any(c => c.Equals(channel.Chip, StringComparison.OrdinalIgnoreCase)) == true) continue;
             var item = Describe(channel);
-            if (item is not null) _channels.Add((item, channel));
+            if (item is not null) _channels.Add((DramSensorIdentity.Describe(item, channel.ChipPath), channel));
         }
         return _channels.Select(c => c.Item).ToArray();
     }
@@ -48,27 +48,31 @@ public sealed class LibSensorsBackend(SourceSettings? sources = null, ILibSensor
     }
     public static HardwareItem? Describe(LibSensorChannel channel)
     {
-        // Live measurements and explicit status/limit channels only. Configuration thresholds are
-        // not observations, and PWM control remains with the existing validated hwmon writer.
+        // SPD thresholds have a distinct kind: they are configuration readbacks, never curve inputs.
+        // PWM control remains with the existing validated hwmon writer.
         var match = Regex.Match(channel.Feature, @"^([a-z]+)([0-9]+)$", RegexOptions.CultureInvariant);
         var index = Regex.Match(Path.GetFileName(channel.ChipPath), @"^hwmon([0-9]+)$", RegexOptions.CultureInvariant);
         if (!match.Success || !index.Success || channel.FeatureType == 7) return null;
         var sub = channel.Subfeature;
         var status = sub.EndsWith("_alarm", StringComparison.Ordinal) || sub.EndsWith("_fault", StringComparison.Ordinal);
         var limit = sub.EndsWith("_cap", StringComparison.Ordinal);
-        if (!status && !limit && !sub.EndsWith("_input", StringComparison.Ordinal) &&
+        var temperatureLimit = channel.Chip == "spd5118" && channel.FeatureType == 2 &&
+            DramTemperatureLimits.Suffixes.Any(s => sub == channel.Feature + "_" + s);
+        if (!status && !limit && !temperatureLimit && !sub.EndsWith("_input", StringComparison.Ordinal) &&
             !sub.EndsWith("_average", StringComparison.Ordinal) && channel.FeatureType != 0x10) return null;
-        var kind = status ? HardwareKind.Status : channel.FeatureType switch
+        var kind = status ? HardwareKind.Status : temperatureLimit ? HardwareKind.TemperatureLimit : channel.FeatureType switch
         {
             0 or 0x10 => HardwareKind.Voltage, 1 => HardwareKind.Tach, 2 => HardwareKind.Temperature,
             3 => HardwareKind.Power, 4 => HardwareKind.Energy, 5 => HardwareKind.Current,
             6 => HardwareKind.Humidity, 0x19 => HardwareKind.Frequency, _ => HardwareKind.Status,
         };
         var channelKind = match.Groups[1].Value;
-        var suffix = status ? ":" + sub[(channel.Feature.Length + 1)..] : limit ? ":cap" : sub.EndsWith("_average") ? ":average" : "";
+        var suffix = status ? ":" + sub[(channel.Feature.Length + 1)..] : limit ? ":cap" :
+            temperatureLimit ? ":limit:" + sub[(channel.Feature.Length + 1)..] : sub.EndsWith("_average") ? ":average" : "";
         var label = string.IsNullOrWhiteSpace(channel.Label) ? channel.Feature : channel.Label;
         if (status) label += " · " + sub[(channel.Feature.Length + 1)..].Replace('_', ' ');
         else if (limit) label += " · power limit";
+        else if (temperatureLimit) label += " · " + DramTemperatureLimits.Label(sub[(channel.Feature.Length + 1)..]).ToLowerInvariant() + " limit";
         else if (sub.EndsWith("_average")) label += " · reported average";
         return new HardwareItem
         {
@@ -76,6 +80,7 @@ public sealed class LibSensorsBackend(SourceSettings? sources = null, ILibSensor
             Name = label, Kind = kind, Backend = "hwmon", Group = $"{channel.Chip} (hwmon{index.Groups[1].Value})",
             Unit = status ? "flag" : channel.Unit, Source = "libsensors", CanSet = false,
             Details = $"libsensors · {channel.Subfeature}" + (limit ? " · configured ceiling, not power draw" : "") +
+                (temperatureLimit ? " · configured alarm threshold, not a measured minimum/maximum or a guaranteed safe operating temperature" : "") +
                 (kind == HardwareKind.Voltage && label == channel.Feature ? " · unverified motherboard rail mapping" : ""),
         };
     }

@@ -36,7 +36,10 @@ Threadripper 9970X + RTX 5060 Ti / 2× RTX PRO 6000 Blackwell (driver 615.x).
   Power-limit editor per GPU (applied via the root helper, persisted, reapplied at startup).
 - **Sensors page** — compact Current / Min / Max / Average / Unit tables for temperatures, fan RPM/duty,
   voltages, current, power/energy and humidity where available, NVIDIA load/clocks/VRAM, and memory ECC
-  counters. Status/alarm flags are optional. Statistics share one hardware sample and continue while other
+  counters. Bound DDR5 SPD5118 hubs appear together under **Memory temperatures**, with stable
+  controller/address identities for names, curves and overlay tiles. Configured low/high/critical
+  temperature limits appear beneath each memory row, separate from measured Min/Max. Status/alarm flags are optional.
+  Statistics share one hardware sample and continue while other
   tabs are visible. **Sensor groups** lets you hide categories such as Memory (ECC). Hidden or collapsed
   groups pause optional hardware reads; active fan curves, the overlay and visible pages keep required
   readings. Visibility and collapse choices persist in the profile. Names become edit boxes only when

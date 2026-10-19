@@ -15,6 +15,7 @@ public enum HardwareKind
     Data,
     Counter,
     Status,
+    TemperatureLimit,
 }
 
 public sealed class HardwareItem

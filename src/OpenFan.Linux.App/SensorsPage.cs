@@ -34,7 +34,7 @@ public sealed partial class MainWindow
 
     /// <summary>Measurements, counters, optional status flags and readback of known fan controls.</summary>
     private static bool IsSensorish(HardwareItem i) =>
-        i.Kind != HardwareKind.Control || i.Backend is "hwmon" or "nvml";
+        i.Kind != HardwareKind.TemperatureLimit && (i.Kind != HardwareKind.Control || i.Backend is "hwmon" or "nvml");
 
     // Maps hwmon index -> (drive model, PCI address). NVMe temp chips are /sys/class/hwmon/hwmonN (name
     // "nvme"); the model file sits behind the device symlink and reads through it directly. The PCI address
@@ -191,7 +191,7 @@ public sealed partial class MainWindow
         body.Children.Add(new TextBlock { Text = "Hidden or collapsed groups pause sampling. Fan curves, the overlay and visible pages keep the readings they need.",
             FontSize = 12, TextWrapping = TextWrapping.Wrap, Foreground = Secondary, Margin = new Thickness(0, 0, 0, 8) });
         var choices = new StackPanel { Spacing = 3 };
-        var groups = _app.Inventory.Where(i => _app.Settings.ShowSensorStatus || i.Kind != HardwareKind.Status).GroupBy(SensorPollingPlan.Group).ToDictionary(g => g.Key, g => g.Count());
+        var groups = _app.Inventory.Where(i => IsSensorish(i) && (_app.Settings.ShowSensorStatus || i.Kind != HardwareKind.Status)).GroupBy(SensorPollingPlan.Group).ToDictionary(g => g.Key, g => g.Count());
         foreach (var group in SensorPollingPlan.GroupOrder.Where(groups.ContainsKey))
         {
             var option = new CheckBox { Content = $"{group} ({groups[group]})", IsChecked = !_app.Settings.HiddenSensorGroups.Contains(group) };
@@ -319,6 +319,17 @@ public sealed partial class MainWindow
         string Format(double? value) => value?.ToString(format, CultureInfo.CurrentCulture) ?? "—";
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions(SensorColumns), MinHeight = 26,
             Children = { nameHost, Col(current, 1), Col(minimum, 2), Col(maximum, 3), Col(average, 4), Col(SensorCell(unit), 5) } };
+        var thresholds = item.Kind == HardwareKind.Temperature && item.Id.StartsWith("hwmon:spd5118:", StringComparison.Ordinal)
+            ? DramTemperatureLimits.Suffixes.Where(s => _app.Inventory.Any(i => i.Kind == HardwareKind.TemperatureLimit && i.Id == DramTemperatureLimits.Id(item.Id, s))).ToArray()
+            : [];
+        TextBlock? limitText = null;
+        if (thresholds.Length > 0)
+        {
+            limitText = new TextBlock { FontSize = 11, Foreground = Secondary, Margin = new Thickness(5, 0, 5, 5), TextWrapping = TextWrapping.Wrap };
+            ToolTip.SetTip(limitText, "Configured SPD hub alarm thresholds. These are separate from the measured Min/Max columns and are shown read-only.");
+            grid.RowDefinitions = new RowDefinitions("Auto,Auto");
+            Grid.SetRow(limitText, 1); Grid.SetColumnSpan(limitText, 6); grid.Children.Add(limitText);
+        }
         var row = new Border { Child = grid, BorderBrush = CardBorder, BorderThickness = new Thickness(0, 0, 0, 1) };
         static void Set(TextBlock cell, string text) { if (cell.Text != text) cell.Text = text; }
         ToolTip.SetTip(current, "Valid readings since launch or Reset statistics. Hidden/collapsed groups pause optional sampling.");
@@ -326,6 +337,7 @@ public sealed partial class MainWindow
         {
             Set(current, Format(sample.Current)); Set(minimum, Format(sample.Minimum)); Set(maximum, Format(sample.Maximum));
             Set(average, item.Kind is HardwareKind.Status or HardwareKind.Counter ? "—" : Format(sample.Average));
+            if (limitText is not null) Set(limitText, DramTemperatureLimits.Format(item.Id, thresholds, _app.SensorValue));
         }));
         return row;
     }

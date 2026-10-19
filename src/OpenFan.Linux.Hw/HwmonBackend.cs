@@ -26,6 +26,7 @@ public sealed partial class HwmonBackend : ISensorBackend, IFanActuator
     public void ConfigureSources(SourceSettings sources) => _sources = sources;
     private readonly Dictionary<string, int> _initialEnable = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<HardwareItem> _items = [];
+    private readonly Dictionary<string, string> _dramReadIds = new(StringComparer.OrdinalIgnoreCase);
 
     /// <param name="sysfsRoot">Defaults to /sys/class/hwmon; tests pass a fixture directory.</param>
     public HwmonBackend(string? sysfsRoot = null, SourceSettings? sources = null)
@@ -46,6 +47,7 @@ public sealed partial class HwmonBackend : ISensorBackend, IFanActuator
     private IReadOnlyList<HardwareItem> Discover(bool controlsOnly)
     {
         _items.Clear();
+        _dramReadIds.Clear();
         if (!Available)
             return _items;
 
@@ -69,7 +71,7 @@ public sealed partial class HwmonBackend : ISensorBackend, IFanActuator
                 if (temp.Success)
                 {
                     var n = int.Parse(temp.Groups[1].Value);
-                    _items.Add(new HardwareItem
+                    var raw = new HardwareItem
                     {
                         Id = ItemId(chip, index, "temp", n),
                         Kind = HardwareKind.Temperature,
@@ -77,7 +79,25 @@ public sealed partial class HwmonBackend : ISensorBackend, IFanActuator
                         Backend = BackendName,
                         Group = group,
                         CanSet = false,
-                    });
+                    };
+                    var item = DramSensorIdentity.Describe(raw, dir);
+                    _items.Add(item);
+                    if (item.Id != raw.Id) _dramReadIds[item.Id] = raw.Id;
+                    if (chip == "spd5118")
+                        foreach (var suffix in DramTemperatureLimits.Suffixes)
+                        {
+                            if (!File.Exists(Path.Combine(dir, $"temp{n}_{suffix}"))) continue;
+                            var rawLimit = new HardwareItem
+                            {
+                                Id = DramTemperatureLimits.Id(raw.Id, suffix), Kind = HardwareKind.TemperatureLimit,
+                                Name = raw.Name + " · " + DramTemperatureLimits.Label(suffix).ToLowerInvariant() + " limit",
+                                Backend = BackendName, Group = group, CanSet = false, Unit = "°C", Source = "sysfs",
+                                Details = $"temp{n}_{suffix} · configured alarm threshold, not a measured minimum/maximum or a guaranteed safe operating temperature",
+                            };
+                            var limitItem = DramSensorIdentity.Describe(rawLimit, dir);
+                            _items.Add(limitItem);
+                            if (limitItem.Id != rawLimit.Id) _dramReadIds[limitItem.Id] = rawLimit.Id;
+                        }
                     continue;
                 }
 
@@ -135,7 +155,25 @@ public sealed partial class HwmonBackend : ISensorBackend, IFanActuator
         foreach (var item in _items)
         {
             if (requested is not null && !requested.Contains(item.Id)) continue;
-            var path = SysPathFor(item.Id, chipNames);
+            var rawId = _dramReadIds.GetValueOrDefault(item.Id, item.Id);
+            var readId = rawId;
+            string? limitSuffix = null;
+            if (item.Kind == HardwareKind.TemperatureLimit)
+            {
+                var parts = rawId.Split(':');
+                if (parts.Length != 7 || parts[5] != "limit" || !DramTemperatureLimits.Suffixes.Contains(parts[6]))
+                { readings[item.Id] = null; continue; }
+                readId = string.Join(':', parts.Take(5));
+                limitSuffix = parts[6];
+            }
+            var path = SysPathFor(readId, chipNames);
+            if (path is not null && limitSuffix is not null) path = path[..^"_input".Length] + "_" + limitSuffix;
+            // Read-only stable ids never enter the actuator. Reject a replaced/rebound SPD hub.
+            if (path is not null && rawId != item.Id)
+            {
+                var raw = new HardwareItem { Id = rawId, Name = "", Kind = item.Kind, Backend = BackendName };
+                if (DramSensorIdentity.Describe(raw, Path.GetDirectoryName(path)!).Id != item.Id) path = null;
+            }
             if (path is null)
             {
                 readings[item.Id] = null;
@@ -144,6 +182,9 @@ public sealed partial class HwmonBackend : ISensorBackend, IFanActuator
 
             switch (item.Kind)
             {
+                case HardwareKind.TemperatureLimit:
+                    readings[item.Id] = ReadInt(path) is { } threshold ? threshold / 1000.0 : null;
+                    break;
                 case HardwareKind.Temperature:
                     // k10temp reports -40 °C when disabled, SuperIO floating pins go wild;
                     // treat implausible values as missing so curves skip (spec §3.2).

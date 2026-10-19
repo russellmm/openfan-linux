@@ -1,5 +1,31 @@
 # RAM temperature investigation
 
+## October 19 update — working readings
+
+The October 18 investigation below is historical. The later successful setup is documented
+in `DRAM-TEMPS-README.md` and preserved in `packaging/dram-temps/`. Four SPD5118 hubs are now
+bound on the DesignWare adapters beneath controllers `AMDI0010:01` and `AMDI0010:02`, each
+at addresses 0x50 and 0x52. The already-installed, enabled `dram-temps.service` ran successfully
+on the October 19 boot. Read-only live samples are approximately 41–45 °C.
+
+OpenFan uses the existing libsensors reader, with no extra sampling process or privileged
+GUI operations. Memory temperatures appear in one compact table with controller/address
+labels. Stable SPD hub identities survive both hwmon and I2C adapter renumbering; the sysfs
+fallback uses the same identities. Custom library labels are honored, and optional alarm
+flags remain separate from temperatures. No physical slot mapping or inferred thermal
+health threshold is applied. Each row also shows the hub's configured Low, High, Critical low
+and Critical high limits, read through libsensors (or sysfs fallback). All four currently report
+0, 55, 0 and 85 °C respectively. These read-only alarm settings are separate from observed
+Min/Max values and do not establish manufacturer-recommended operating limits. Limit channels
+are typed separately so temperature pickers offer only actual measurements. These readings
+are the SPD hub sensors, not individual DRAM dies.
+
+Hide/collapse choices save immediately and resume after restart. Hiding or collapsing pauses
+optional reads while preserving inputs required by enabled fan curves and the overlay.
+The user's existing group visibility and collapse choices are preserved.
+
+## October 18 initial investigation (superseded)
+
 October 18, 2026. Machine: ASUS Pro WS TRX50-SAGE WIFI A, Threadripper 9970X, Ubuntu 26.10,
 kernel 7.3.0-9. Firmware reports four Kingston KF556R28-32, 32 GiB DDR5 ECC registered modules,
 128 GiB total, configured at 5600 MT/s, on channels A/C/E/G.

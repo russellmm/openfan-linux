@@ -1,0 +1,11 @@
+[Unit]
+Description=Bind spd5118 DIMM temperature sensors
+After=systemd-modules-load.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/dram-temps-bind.sh
+
+[Install]
+WantedBy=multi-user.target

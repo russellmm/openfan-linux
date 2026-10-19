@@ -1,6 +1,6 @@
 # Sensor collection and coverage audit
 
-Reviewed October 18, 2026 on Ubuntu 26.10, kernel 7.3.0-9, ASUS Pro WS TRX50-SAGE WIFI A,
+Reviewed October 18–19, 2026 on Ubuntu 26.10, kernel 7.3.0-9, ASUS Pro WS TRX50-SAGE WIFI A,
 Threadripper 9970X, four 32 GB Kingston DDR5 ECC modules and three NVIDIA GPUs.
 
 ## Collection design
@@ -37,19 +37,25 @@ readers remain relevant.
 Native libsensors access is serialized because configuration and chip pointers are process-global.
 Discovery reloads its configuration and rebuilds pointers; a generation check prevents dereferencing
 pointers invalidated by another reader. Configured labels/ignores/conversion rules are handled by the
-library. Existing temperature/tach ids are retained for saved curves and aliases.
+library. Existing temperature/tach ids are retained for saved curves and aliases, except newly
+integrated SPD5118 hubs use physical controller/address identities instead of boot-specific hwmon indices.
 
 ## Actual coverage on this machine
 
-The former Sensors page had **60 rows**. The new page has **132 ordinary rows**, plus **36 optional
-status/alarm rows** (168 total). Counts are inventory entries, including fan duty readbacks, configured
+The former Sensors page had **60 rows**. With the October 19 DDR5 integration, the page has
+**136 ordinary rows**, plus **52 optional status/alarm rows** (188 total). Counts are inventory entries, including fan duty readbacks, configured
 power limits, fixed VRAM capacity, raw/unverified motherboard channels and counters; they are not
-168 independently calibrated physical sensors. A native read-only inventory sample returned a value
+188 independently calibrated physical sensors. A native read-only inventory sample returned a value
 for every discovered library/EDAC/NVML channel. Raw PWM readback is provided separately.
+
+Another 16 DDR5 alarm-threshold readbacks (four per module) appear beneath the four memory
+temperature rows rather than as extra measurement rows. They use a distinct TemperatureLimit
+kind, stay out of temperature source pickers, and pause with the memory group. These configured
+Low/High/Critical low/Critical high values are independent of the sampled Min/Max columns.
 
 | Category | Rows | Notes |
 | --- | ---: | --- |
-| Temperature | 41 | CPU package/CCDs, board, ASUS EC, five NVMe drives, network and GPU core |
+| Temperature | 45 | CPU package/CCDs, board, ASUS EC, five NVMe drives, network, GPU core and four DDR5 SPD hubs |
 | Fan RPM | 14 | Six SuperIO, three ASUS EC and five NVIDIA fans |
 | Fan duty | 12 | Seven motherboard PWM and five GPU fan readbacks |
 | Voltage | 18 | NCT6799 inputs, labeled by libsensors/config; unverified rails keep generic names |
@@ -58,7 +64,7 @@ for every discovered library/EDAC/NVML channel. Raw PWM readback is provided sep
 | GPU load | 6 | GPU and memory-controller utilization per card |
 | GPU clocks | 9 | Graphics, SM and memory MHz per card |
 | GPU memory | 6 | Used/total GiB per card |
-| Optional status/alarm flags | 36 | Kernel-reported states; thresholds may be unconfigured |
+| Optional status/alarm flags | 52 | Kernel-reported states, including 16 DDR5 flags; thresholds may be unconfigured |
 
 The reader also understands current, energy, humidity and generic hwmon frequency measurements when
 other hardware exports them. This machine does not expose those through ordinary hwmon at present.
@@ -138,7 +144,7 @@ and resistor-divider scaling require verified information.
 
 | Desired data | Findings / next step |
 | --- | --- |
-| Per-DIMM temperatures | No exposed SPD5118/I3C devices; driver load and targeted read-only checks found no usable values. See the detailed RAM investigation. |
+| Physical DIMM slot mapping | Four SPD hub temperatures now work through the DesignWare adapters. Controller/address identities are verified; mapping them to physical slot letters remains open. See the updated RAM investigation. |
 | Exact board rail names/scaling | Verify against board documentation, firmware or a Windows sensor export, then add a reviewed libsensors configuration. |
 | SSD health/wear, reads/writes, spare capacity, media errors | NVMe temperatures are available; SMART health is a separate interface. Add a narrowly scoped read-only helper/SMART reader, discover supported fields and poll health less often. |
 | Package/core energy and derived watts | AMD RAPL counters exist but are root-readable here. Add a fixed read-only helper endpoint with wrap/reset handling; do not loosen all sysfs permissions. |
