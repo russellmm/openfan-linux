@@ -93,6 +93,19 @@ public sealed class HwmonBackendTests : IDisposable
     }
 
     [Fact]
+    public void ReadIntoRejectsReusedChipIndexAndRecoversOnTheNextSample()
+    {
+        var backend = new HwmonBackend(_root); backend.Discover();
+        var readings = new Dictionary<string, double?>();
+        Write("hwmon10/name", "different_chip"); backend.ReadInto(readings);
+        Assert.Null(readings[NctPwm1]); Assert.Null(readings["hwmon:nct6799:10:fan:1"]);
+        Write("hwmon10/name", "nct6799"); backend.ReadInto(readings);
+        Assert.Equal(1580, readings["hwmon:nct6799:10:fan:1"]);
+        Directory.Delete(Path.Combine(_root, "hwmon10"), recursive: true);
+        backend.ReadInto(readings); Assert.Null(readings[NctPwm1]);
+    }
+
+    [Fact]
     public void SetPercent_writes_manual_enable_then_duty()
     {
         var backend = new HwmonBackend(_root);

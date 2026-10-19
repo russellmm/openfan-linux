@@ -5,7 +5,14 @@ Everything here runs once with sudo; the OpenFan app itself never runs as root
 
 ## Install
 
+The GUI uses `libsensors.so.5` for hardware measurements (`libsensors5` on Ubuntu/Debian).
+Install `lm-sensors` for the optional diagnostic command. A self-contained .NET publish still requires
+these native libraries; it does not bundle them. If libsensors is unavailable or its configuration
+fails, the GUI reports the fallback and retains the original sysfs temperature/fan reader.
+NVIDIA telemetry continues through the driver-provided NVML library.
+
 ```sh
+sudo apt install libsensors5 lm-sensors
 sudo groupadd -f openfan
 sudo usermod -aG openfan "$USER"
 

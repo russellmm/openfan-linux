@@ -36,7 +36,7 @@ internal static class NvmlNative
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int nvmlDeviceGetUUID(nint device, [Out] byte[] uuid, uint length);
 
-    // v3 carries the full 32-char busId; struct includes 'function' (nvml.h layout).
+    // v3 carries the full 32-char busId; nvmlPciInfo_t has no separate function field.
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nvmlDeviceGetPciInfo_v3")]
     public static extern int nvmlDeviceGetPciInfo(nint device, ref PciInfo pci);
 
@@ -102,8 +102,8 @@ internal static class NvmlNative
     [StructLayout(LayoutKind.Sequential)]
     public struct Utilization
     {
-        public byte Gpu;
-        public byte Memory;
+        public uint Gpu;
+        public uint Memory;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -139,20 +139,19 @@ internal static class NvmlNative
         public uint domain;
         public uint bus;
         public uint device;
-        public uint function;
         public uint pciDeviceId;
         public uint pciSubSystemId;
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
         public string busId;
     }
 
-    /// <summary>nvmlFanSpeedInfo_t: speed is unsigned long long (the Windows port's uint was wrong).</summary>
+    /// <summary>nvmlFanSpeedInfo_v1_t: three unsigned ints; size is part of the version token.</summary>
     [StructLayout(LayoutKind.Sequential)]
     public struct FanSpeedInfo
     {
         public uint version;
         public uint fan;
-        public ulong speedRPM;
+        public uint speedRPM;
     }
 
     public static readonly uint FanSpeedInfoV1 =
@@ -248,6 +247,20 @@ public sealed class NvmlBackend : ISensorBackend, IFanActuator, IGpuPowerWriter
         }
     }
 
+    private static readonly (string Metric, string Title, HardwareKind Kind, string Unit)[] TelemetryChannels =
+    [
+        ("load", "GPU load", HardwareKind.Load, "%"),
+        ("memory-load", "Memory controller load", HardwareKind.Load, "%"),
+        ("power", "Board power", HardwareKind.Power, "W"),
+        ("power-limit", "Board power limit", HardwareKind.Power, "W"),
+        ("graphics-clock", "Graphics clock", HardwareKind.Frequency, "MHz"),
+        ("sm-clock", "SM clock", HardwareKind.Frequency, "MHz"),
+        ("memory-clock", "Memory clock", HardwareKind.Frequency, "MHz"),
+        ("memory-used", "VRAM used", HardwareKind.Data, "GiB"),
+        ("memory-total", "VRAM total", HardwareKind.Data, "GiB"),
+    ];
+    private IReadOnlyDictionary<string, double?> _lastTelemetry = new Dictionary<string, double?>();
+
     public IReadOnlyList<HardwareItem> Discover()
     {
         var list = new List<HardwareItem>();
@@ -263,6 +276,13 @@ public sealed class NvmlBackend : ISensorBackend, IFanActuator, IGpuPowerWriter
                 Group = label,
                 CanSet = false,
             });
+            foreach (var (metric, title, kind, unit) in TelemetryChannels)
+                list.Add(new HardwareItem
+                {
+                    Id = $"nvml:{g.Uuid}:metric:{metric}", Kind = kind, Name = $"{label} {title}",
+                    Backend = BackendName, Group = label, Unit = unit, CanSet = false, Source = "NVML",
+                    Details = "NVIDIA NVML · " + title,
+                });
             for (var f = 0; f < g.FanCount; f++)
             {
                 list.Add(new HardwareItem
@@ -289,29 +309,56 @@ public sealed class NvmlBackend : ISensorBackend, IFanActuator, IGpuPowerWriter
         return list;
     }
 
-    public void ReadInto(IDictionary<string, double?> readings)
+    public void ReadInto(IDictionary<string, double?> readings) => ReadInto(readings, null);
+    public void ReadInto(IDictionary<string, double?> readings, IReadOnlySet<string>? requested)
     {
+        var telemetry = new Dictionary<string, double?>();
         foreach (var g in _gpus)
         {
-            if (NvmlNative.nvmlDeviceGetTemperature(g.Handle, NvmlNative.TempGpu, out var t) == NvmlNative.Success)
-                readings[$"nvml:{g.Uuid}:temp:core"] = t;
-            else
-                readings[$"nvml:{g.Uuid}:temp:core"] = null;
-
+            var prefix = $"nvml:{g.Uuid}:";
+            bool Wants(string suffix) => requested is null || requested.Contains(prefix + suffix);
+            void Metric(string key, double? value)
+            {
+                if (!Wants("metric:" + key)) return;
+                readings[prefix + "metric:" + key] = value;
+                telemetry[$"{g.Uuid}:{key}"] = value;
+            }
+            void Query(string key, Func<double?> read)
+            {
+                if (Wants("metric:" + key)) Metric(key, read());
+            }
+            if (Wants("temp:core"))
+                readings[prefix + "temp:core"] = NvmlNative.nvmlDeviceGetTemperature(g.Handle, NvmlNative.TempGpu, out var t) == NvmlNative.Success ? t : null;
+            if (Wants("metric:load") || Wants("metric:memory-load"))
+            {
+                var util = new NvmlNative.Utilization();
+                var ok = NvmlNative.nvmlDeviceGetUtilizationRates(g.Handle, ref util) == NvmlNative.Success;
+                Metric("load", ok ? util.Gpu : null); Metric("memory-load", ok ? util.Memory : null);
+            }
+            if (Wants("metric:memory-used") || Wants("metric:memory-total"))
+            {
+                var memory = new NvmlNative.MemoryUsage();
+                var ok = NvmlNative.nvmlDeviceGetMemoryInfo(g.Handle, ref memory) == NvmlNative.Success;
+                Metric("memory-used", ok ? memory.Used / 1073741824.0 : null);
+                Metric("memory-total", ok ? memory.Total / 1073741824.0 : null);
+            }
+            Query("power", () => NvmlNative.nvmlDeviceGetPowerUsage(g.Handle, out var v) == NvmlNative.Success ? v / 1000.0 : null);
+            Query("power-limit", () => NvmlNative.nvmlDeviceGetPowerManagementLimit(g.Handle, out var v) == NvmlNative.Success ? v / 1000.0 : null);
+            Query("graphics-clock", () => NvmlNative.nvmlDeviceGetClockInfo(g.Handle, 0, out var v) == NvmlNative.Success ? v : null);
+            Query("sm-clock", () => NvmlNative.nvmlDeviceGetClockInfo(g.Handle, 1, out var v) == NvmlNative.Success ? v : null);
+            Query("memory-clock", () => NvmlNative.nvmlDeviceGetClockInfo(g.Handle, 2, out var v) == NvmlNative.Success ? v : null);
             for (uint f = 0; f < g.FanCount; f++)
             {
-                if (NvmlNative.nvmlDeviceGetFanSpeed_v2(g.Handle, f, out var speed) == NvmlNative.Success)
-                    readings[$"nvml:{g.Uuid}:fan:{f}"] = speed;
-                else
-                    readings[$"nvml:{g.Uuid}:fan:{f}"] = null;
-
-                double? rpm = null;
-                var info = new NvmlNative.FanSpeedInfo { version = NvmlNative.FanSpeedInfoV1, fan = f };
-                if (NvmlNative.nvmlDeviceGetFanSpeedRPM(g.Handle, ref info) == NvmlNative.Success)
-                    rpm = info.speedRPM;
-                readings[$"nvml:{g.Uuid}:tach:{f}"] = rpm;
+                if (Wants($"fan:{f}"))
+                    readings[prefix + $"fan:{f}"] = NvmlNative.nvmlDeviceGetFanSpeed_v2(g.Handle, f, out var speed) == NvmlNative.Success ? speed : null;
+                if (Wants($"tach:{f}"))
+                {
+                    var info = new NvmlNative.FanSpeedInfo { version = NvmlNative.FanSpeedInfoV1, fan = f };
+                    readings[prefix + $"tach:{f}"] = NvmlNative.nvmlDeviceGetFanSpeedRPM(g.Handle, ref info) == NvmlNative.Success ? info.speedRPM : null;
+                }
             }
         }
+        Volatile.Write(ref _lastTelemetry, telemetry);
     }
 
     // ---- GPU page snapshots + power limit (helper-side write) ----------------
@@ -332,30 +379,20 @@ public sealed class NvmlBackend : ISensorBackend, IFanActuator, IGpuPowerWriter
         if (!Available)
             return list;
 
+        var telemetry = Volatile.Read(ref _lastTelemetry);
         foreach (var g in _gpus)
         {
             double? temp = NvmlNative.nvmlDeviceGetTemperature(g.Handle, NvmlNative.TempGpu, out var t) == NvmlNative.Success ? t : null;
 
-            double? utilGpu = null;
-            var util = new NvmlNative.Utilization();
-            if (NvmlNative.nvmlDeviceGetUtilizationRates(g.Handle, ref util) == NvmlNative.Success)
-                utilGpu = util.Gpu;
-
-            ulong? memUsed = null, memTotal = null;
-            var mem = new NvmlNative.MemoryUsage();
-            if (NvmlNative.nvmlDeviceGetMemoryInfo(g.Handle, ref mem) == NvmlNative.Success)
-            {
-                memUsed = mem.Used;
-                memTotal = mem.Total;
-            }
-
-            double? drawW = NvmlNative.nvmlDeviceGetPowerUsage(g.Handle, out var mw) == NvmlNative.Success ? mw / 1000.0 : null;
-            double? limitW = NvmlNative.nvmlDeviceGetPowerManagementLimit(g.Handle, out var limMw) == NvmlNative.Success ? limMw / 1000.0 : null;
+            double? Cached(string metric) => telemetry.GetValueOrDefault($"{g.Uuid}:{metric}");
+            double? utilGpu = Cached("load");
+            ulong? memUsed = Cached("memory-used") is { } usedGiB ? (ulong)(usedGiB * 1073741824.0) : null;
+            ulong? memTotal = Cached("memory-total") is { } totalGiB ? (ulong)(totalGiB * 1073741824.0) : null;
+            double? drawW = Cached("power"); double? limitW = Cached("power-limit");
             double? minW = null, maxW = null;
             if (NvmlNative.nvmlDeviceGetPowerManagementLimitConstraints(g.Handle, out var cMin, out var cMax) == NvmlNative.Success)
             {
-                minW = cMin / 1000.0;
-                maxW = cMax > 0 ? cMax / 1000.0 : null; // some vBIOS report 0 = unbounded
+                minW = cMin / 1000.0; maxW = cMax > 0 ? cMax / 1000.0 : null;
             }
 
             int? pstate = NvmlNative.nvmlDeviceGetPerformanceState(g.Handle, out var ps) == NvmlNative.Success ? (int)ps : null;
@@ -369,7 +406,7 @@ public sealed class NvmlBackend : ISensorBackend, IFanActuator, IGpuPowerWriter
                     fanRpm = info.speedRPM;
             }
 
-            int? clk(int type) => NvmlNative.nvmlDeviceGetClockInfo(g.Handle, (uint)type, out var v) == NvmlNative.Success ? (int)v : null;
+            int? clk(int type) => Cached(type switch { 0 => "graphics-clock", 1 => "sm-clock", _ => "memory-clock" }) is { } clock ? (int)clock : null;
 
             int? gen = NvmlNative.nvmlDeviceGetCurrPcieLinkGeneration(g.Handle, out var gn) == NvmlNative.Success ? (int)gn : null;
             int? width = NvmlNative.nvmlDeviceGetCurrPcieLinkWidth(g.Handle, out var wd) == NvmlNative.Success ? (int)wd : null;
@@ -511,7 +548,7 @@ public sealed class NvmlBackend : ISensorBackend, IFanActuator, IGpuPowerWriter
             return pci.busId;
         if (!string.IsNullOrWhiteSpace(pci.busIdLegacy))
             return pci.busIdLegacy;
-        return $"{pci.bus:X2}:{pci.device:X2}.{pci.function}";
+        return $"{pci.bus:X2}:{pci.device:X2}.0";
     }
 
     public void Dispose()

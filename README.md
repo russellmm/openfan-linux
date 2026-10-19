@@ -5,14 +5,16 @@ GPU fans + power limits via **NVML**, with a curve library (Flat / Graph / Mix) 
 [OpenFan](https://github.com/ScriptHamster/OpenFan) program. Design references in [`screenshots/`](screenshots/)
 (Windows OpenFan captures); full build spec in [`openfan-ubuntu.md`](openfan-ubuntu.md).
 
-Built with Avalonia 11 / .NET 8, FluentTheme dark. Currently developed and daily-driven on Ubuntu 26.04 +
-Threadripper 9970X + RTX 5060 Ti / 2× RTX PRO 6000 Blackwell (driver 595.x).
+Built with Avalonia 11 / .NET 8, FluentTheme dark. Currently developed and daily-driven on Ubuntu 26.10 +
+Threadripper 9970X + RTX 5060 Ti / 2× RTX PRO 6000 Blackwell (driver 615.x).
 
 ## Requirements
 
-- **lm-sensors** (recommended): `sudo apt install lm-sensors && sudo sensors-detect` — loads the board's
-  hwmon drivers (nct6772, asucec, …). OpenFan reads sysfs directly like lm-sensors does; the package itself
-  is the convenient way to get the kernel modules configured.
+- **libsensors** (recommended): `sudo apt install libsensors5 lm-sensors`. OpenFan calls the library directly
+  for hwmon measurements, honoring its labels, conversion rules and ignored inputs. Appropriate kernel
+  drivers must also be loaded (for example `nct6775`, `asus_ec_sensors`, `k10temp`). Driver discovery is a
+  one-time setup task; OpenFan never runs `sensors-detect` or scans hardware buses during normal polling.
+  Without the library, a visible fallback provides the original temperature/fan readings from sysfs.
 - **CPU page**: package power + PPT cap come from the `amd_hsmp` kernel module (automatic on TRX50 /
   Threadripper PRO); temperature, load and frequency work from plain hwmon/cpufreq even without it.
 - NVIDIA GPU features need the proprietary driver with NVML (`nvidia-smi` working).
@@ -32,9 +34,16 @@ Threadripper 9970X + RTX 5060 Ti / 2× RTX PRO 6000 Blackwell (driver 595.x).
 - **GPUs page** — per card: utilization + VRAM bars, temp / power draw-vs-limit / P-state / fan % / RPM / clocks,
   PCIe generation × width with live RX/TX throughput, and a live process table (name · PID · compute/graphics · VRAM).
   Power-limit editor per GPU (applied via the root helper, persisted, reapplied at startup).
-- **Sensors page** — full sensor inventory grouped by source (CPU / GPU / Motherboard / Chipset EC / AMD HSMP /
-  NVMe / Network), collapsible per-device subgroups (NVMe drives labeled with their model), and friendly renaming:
-  aliases flow into every curve dropdown while tooltips keep the original hardware name + id.
+- **Sensors page** — compact Current / Min / Max / Average / Unit tables for temperatures, fan RPM/duty,
+  voltages, current, power/energy and humidity where available, NVIDIA load/clocks/VRAM, and memory ECC
+  counters. Status/alarm flags are optional. Statistics share one hardware sample and continue while other
+  tabs are visible. **Sensor groups** lets you hide categories such as Memory (ECC). Hidden or collapsed
+  groups pause optional hardware reads; active fan curves, the overlay and visible pages keep required
+  readings. Visibility and collapse choices persist in the profile. Names become edit boxes only when
+  clicked; table painting pauses during editing, while sampling/fan control continue. NVMe/GPU headings
+  include PCI identity, and names retain hardware details in tooltips. Read-only polling runs in one background batch; discovery runs every five
+  seconds or on Refresh. See [sensor coverage and limitations](docs/sensor-data-audit.md), including the
+  [RAM temperature investigation](docs/memory-temperature-investigation.md).
 - **Desktop overlay (HUD)** — an always-on-top, borderless strip of live sensor tiles, HWiNFO64-style. Configured on
   the **Tray** page: pick any temperature sensor plus CPU socket power / cap and each GPU's board power, give every
   tile its own background colour (eight curated swatches or a full RGB picker with hex paste), **click any tile's name
@@ -52,7 +61,7 @@ Threadripper 9970X + RTX 5060 Ti / 2× RTX PRO 6000 Blackwell (driver 595.x).
 
 ```
 src/OpenFan.Core/         portable engine: curves, control loop, settings store (no Linux deps)
-src/OpenFan.Linux.Hw/     hwmon sysfs backend, NVML backend (+telemetry), helper socket client
+src/OpenFan.Linux.Hw/     libsensors reader, hwmon PWM/fallback, EDAC, NVML, helper socket client
 src/OpenFan.Linux.Helper/ privileged daemon: fan writes + GPU/CPU power limits over /run/openfan/helper.sock
 src/OpenFan.Linux.App/    Avalonia UI (pages, calibration window, desktop overlay, tray)
 ```
@@ -66,7 +75,7 @@ See [`packaging/README.md`](packaging/README.md) for the install chain (udev rul
 ## Build & run
 
 ```bash
-dotnet build && dotnet test          # 136 tests
+dotnet build && dotnet test
 ./src/OpenFan.Linux.App/bin/Debug/net8.0/openfan
 ```
 

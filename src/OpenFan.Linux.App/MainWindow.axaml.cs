@@ -100,10 +100,11 @@ public sealed partial class MainWindow : Window
 
         _app.InventoryChanged += () =>
         {
-            RebuildCards();
-            RebuildCurveCards();
+            _homeAliasesDirty = true;
+            if (HomePanel.IsVisible) { RebuildCards(); RebuildCurveCards(); _homeAliasesDirty = false; }
             InvalidateGpuPage();
             _sensorsPageBuilt = false;
+            NvmeLabels = new(ReadNvmeLabels);
         };
         _app.Ticked += UpdateValues;
         RebuildCards();
@@ -115,11 +116,14 @@ public sealed partial class MainWindow : Window
         if (bootWait == 0)
             _app.Tick(); // first paint now, not one timer-tick late
 
-        _timer.Tick += (_, _) =>
+        _timer.Tick += async (_, _) =>
         {
-            _app.Tick();
+            _app.HomeVisible = HomePanel.IsVisible && IsVisible && WindowState != WindowState.Minimized;
+            _app.GpuPageVisible = GpusPanel.IsVisible && IsVisible && WindowState != WindowState.Minimized;
+            await _app.TickAsync();
             ClockText.Text = DateTime.Now.ToString("h:mm:ss tt");
         };
+        SensorsPanel.ScrollChanged += (_, _) => UpdateSensorsPage();
         UpdateTitle(); // "OpenFan — myconfig.json" when a named config is active
         if (bootWait == 0)
             _timer.Start();
@@ -167,14 +171,19 @@ public sealed partial class MainWindow : Window
             _ => "",
         };
 
+        _app.HomeVisible = page == "home" && IsVisible;
+        _app.GpuPageVisible = page == "gpus" && IsVisible;
+        if (page == "home" && _homeAliasesDirty)
+        { RebuildCards(); RebuildCurveCards(); _homeAliasesDirty = false; }
         if (page == "cpu")
             EnsureCpuPage();
         if (page == "gpus")
             EnsureGpuPage();
         if (page == "sensors")
-            EnsureSensorsPage();
+            UpdateSensorsPage();
         if (page == "tray")
             EnsureHudPage();
+        UpdateValues();
     }
 
     // ---- CPU page ------------------------------------------------------------
@@ -633,269 +642,6 @@ public sealed partial class MainWindow : Window
     }
 
     // ---- Sensors page --------------------------------------------------------
-
-    private bool _sensorsPageBuilt;
-    private readonly List<(string Id, Action<double?> Update)> _sensorValueUpdaters = [];
-
-    private string SensorsSubtitle()
-    {
-        var count = _app.Inventory.Count(IsSensorish);
-        return $"{count} sensors · click a name to rename it";
-    }
-
-    /// <summary>Coarse grouping for the Sensors page, from the hwmon chip / backend.</summary>
-    private static string SensorGroup(HardwareItem item)
-    {
-        if (item.Id.StartsWith("nvml:", StringComparison.OrdinalIgnoreCase))
-            return "GPU";
-        var parts = item.Id.Split(':');
-        var chip = parts.Length > 1 ? parts[1] : "";
-        return chip switch
-        {
-            "k10temp" => "CPU",
-            "nct6799" or "nct6775" or "nct6798" or "nct6796" or "it87" => "Motherboard",
-            "asusec" => "Chipset / ASUS EC",
-            "nvme" => "Storage (NVMe)",
-            "amd_hsmp_hwmon" => "AMD HSMP (SoC)",
-            _ when chip.StartsWith("enp", StringComparison.OrdinalIgnoreCase)
-                || chip.StartsWith("eth", StringComparison.OrdinalIgnoreCase) => "Network",
-            _ => "Other",
-        };
-    }
-
-    /// <summary>
-    /// Escapes text for a MenuItem header. Avalonia parses "_" as an access-key marker and swallows the
-    /// first one, which silently mangles sensor names — "WD_BLACK SN850X" showed up as "WDBLACK SN850X" and
-    /// "PCHCHIP_CPU_MAX_TEMP" as "PCHCHIPCPU_MAX_TEMP". Doubling it renders a literal underscore.
-    /// </summary>
-    internal static string MenuText(string text) =>
-        text.Contains('_') ? text.Replace("_", "__") : text;
-
-    /// <summary>Rows shown on the Sensors page: temps, tach speeds, and GPU fan percent readback.</summary>
-    private static bool IsSensorish(HardwareItem i) =>
-        i.Kind is HardwareKind.Temperature or HardwareKind.Tach
-        || (i.Kind == HardwareKind.Control && i.Id.StartsWith("nvml:", StringComparison.OrdinalIgnoreCase));
-
-    /// <summary>Device key within a section: per NVMe drive, per GPU card; otherwise the chip group.</summary>
-    private static string DeviceKey(HardwareItem item)
-    {
-        var parts = item.Id.Split(':');
-        if (parts.Length > 2 && parts[1] == "nvme")
-            return "nvme:" + parts[2]; // hwmon instance — drives share one group otherwise
-        return item.Group;
-    }
-
-    // Maps hwmon index -> (drive model, PCI address). NVMe temp chips are /sys/class/hwmon/hwmonN (name
-    // "nvme"); the model file sits behind the device symlink and reads through it directly. The PCI address
-    // comes from that same resolved path — two drives of the same model are otherwise indistinguishable,
-    // and unlike the hwmon index the address is stable across reboots.
-    private static readonly Lazy<Dictionary<string, (string Model, string PciBus)>> NvmeLabels = new(() =>
-    {
-        var map = new Dictionary<string, (string, string)>();
-        try
-        {
-            foreach (var hm in Directory.GetDirectories("/sys/class/hwmon"))
-            {
-                string chip;
-                try { chip = File.ReadAllText(Path.Combine(hm, "name")).Trim(); } catch { continue; }
-                if (chip != "nvme")
-                    continue;
-
-                var idx = Path.GetFileName(hm).Replace("hwmon", "");
-
-                // The hwmon `device` link is relative and the class directories are themselves links, so a
-                // fully resolved path is unreliable here. The link's *name* is all that is needed: it is the
-                // NVMe controller (nvmeN), whose class directory holds model and PCI address as plain files.
-                string controller;
-                try
-                {
-                    controller = new DirectoryInfo(Path.Combine(hm, "device")).ResolveLinkTarget(false)?.Name ?? "";
-                }
-                catch { controller = ""; }
-                if (controller.Length == 0) continue;
-
-                string model = "", pci = "";
-                try { model = File.ReadAllText($"/sys/class/nvme/{controller}/model").Trim(); } catch { }
-                try { pci = GpuFormat.CompactPciBus(File.ReadAllText($"/sys/class/nvme/{controller}/address").Trim()); } catch { }
-
-                if (model.Length > 0 || pci.Length > 0)
-                    map[idx] = (model, pci);
-            }
-        }
-        catch { }
-        return map;
-    });
-
-    /// <summary>Drive model for a "nvme:&lt;hwmon index&gt;" device key, or the key itself when unknown.</summary>
-    internal static string NvmeModel(string key) =>
-        key.StartsWith("nvme:") && NvmeLabels.Value.TryGetValue(key[5..], out var lbl) ? lbl.Model : key;
-
-    /// <summary>PCI address for a "nvme:&lt;hwmon index&gt;" device key, "" when the path carried none.</summary>
-    internal static string NvmePciBus(string key) =>
-        key.StartsWith("nvme:") && NvmeLabels.Value.TryGetValue(key[5..], out var lbl) ? lbl.PciBus : "";
-
-    private static readonly string[] GroupOrder =
-        ["CPU", "GPU", "Motherboard", "Chipset / ASUS EC", "AMD HSMP (SoC)", "Storage (NVMe)", "Network", "Other"];
-
-    private void EnsureSensorsPage()
-    {
-        if (_sensorsPageBuilt)
-            return;
-        _sensorsPageBuilt = true;
-        SensorsContent.Children.Clear();
-        _sensorValueUpdaters.Clear();
-
-        var sensors = _app.Inventory
-            .Where(IsSensorish)
-            .GroupBy(SensorGroup)
-            .OrderBy(g => Array.IndexOf(GroupOrder, g.Key) is var ix && ix >= 0 ? ix : 99);
-
-        foreach (var group in sensors)
-        {
-            SensorsContent.Children.Add(new TextBlock
-            {
-                Text = group.Key,
-                Foreground = Secondary,
-                FontSize = 13,
-                FontWeight = FontWeight.SemiBold,
-                Margin = new Thickness(2, 0, 0, 0),
-            });
-
-            var body = new StackPanel();
-            var devices = group.GroupBy(DeviceKey).OrderBy(g => NvmeModel(g.Key), StringComparer.OrdinalIgnoreCase).ToList();
-
-            if (devices.Count > 1)
-            {
-                foreach (var dev in devices)
-                {
-                    var inner = new StackPanel();
-                    foreach (var item in dev.OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase))
-                        inner.Children.Add(BuildSensorRow(item));
-
-                    bool open = true;
-                    var arrow = new TextBlock { Text = "▾", Foreground = Secondary, Width = 18, FontSize = 13 };
-                    var hdrText = new TextBlock
-                    {
-                        Text = NvmeModel(dev.Key),
-                        Foreground = ValueText,
-                        FontSize = 13.5,
-                        FontWeight = FontWeight.SemiBold,
-                    };
-                    var hdrCount = new TextBlock
-                    {
-                        Text = dev.Count() == 1 ? "1 sensor" : $"{dev.Count()} sensors",
-                        Foreground = Secondary,
-                        FontSize = 12,
-                        Margin = new Thickness(8, 0, 0, 0),
-                    };
-                    var header = new Button
-                    {
-                        Background = Brushes.Transparent,
-                        BorderThickness = new Thickness(0),
-                        Padding = new Thickness(0, 5, 0, 5),
-                        HorizontalAlignment = HorizontalAlignment.Stretch,
-                        HorizontalContentAlignment = HorizontalAlignment.Left,
-                        Content = new StackPanel
-                        {
-                            Orientation = Orientation.Horizontal,
-                            Spacing = 2,
-                            Children = { arrow, hdrText, hdrCount },
-                        },
-                    };
-                    header.Click += (_, _) =>
-                    {
-                        open = !open;
-                        inner.IsVisible = open;
-                        arrow.Text = open ? "▾" : "▸";
-                    };
-
-                    body.Children.Add(header);
-                    body.Children.Add(inner);
-                }
-            }
-            else
-            {
-                foreach (var item in group.OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase))
-                    body.Children.Add(BuildSensorRow(item));
-            }
-
-            SensorsContent.Children.Add(new Border
-            {
-                Background = CardBg,
-                BorderBrush = CardBorder,
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(10),
-                Padding = new Thickness(14, 8, 14, 8),
-                Child = body,
-            });
-        }
-    }
-
-    private Control BuildSensorRow(HardwareItem item)
-    {
-        bool isPercent = item.Kind == HardwareKind.Control;
-        var original = isPercent ? item.Name + " %" : item.Name;
-        var valueText = new TextBlock
-        {
-            MinWidth = 96,
-            TextAlignment = TextAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Center,
-            FontSize = 14,
-            FontWeight = FontWeight.Bold,
-            Foreground = ValueText,
-        };
-
-        // Quiet affordance again: the name is a borderless textbox; tooltip keeps the hardware truth.
-        var nameBox = new TextBox
-        {
-            Text = isPercent ? _app.Settings.SensorAliases.GetValueOrDefault(item.Id, original) : _app.SensorLabel(item),
-            Classes = { "cardname" },
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        ToolTip.SetTip(nameBox, $"{original}\n{item.Group}\n{item.Id}");
-
-        nameBox.LostFocus += (_, _) =>
-        {
-            var text = (nameBox.Text ?? "").Trim();
-            if (text.Length == 0 || text == original)
-            {
-                _app.Settings.SensorAliases.Remove(item.Id);
-                nameBox.Text = original; // hardware default, "%"-suffixed for GPU fan rows
-            }
-            else
-            {
-                _app.Settings.SensorAliases[item.Id] = text;
-            }
-            _app.Save();
-            RebuildCurveCards(); // dropdowns across the app pick up the new friendly name
-        };
-        nameBox.KeyDown += (_, e) =>
-        {
-            if (e.Key == Key.Enter)
-                TopLevel.GetTopLevel(nameBox)?.FocusManager?.ClearFocus();
-        };
-
-        _sensorValueUpdaters.Add((item.Id, v =>
-            valueText.Text = v is null
-                ? "—"
-                : item.Kind == HardwareKind.Tach ? $"{v:0} RPM"
-                : isPercent ? $"{v:0} %" : $"{v:0.#} °C"));
-
-        return new Grid
-        {
-            ColumnDefinitions = new ColumnDefinitions("*,Auto"),
-            Margin = new Thickness(0, 3, 0, 3),
-            Children = { nameBox, Col(valueText, 1) },
-        };
-    }
-
-    private void UpdateSensorsPage()
-    {
-        if (!_sensorsPageBuilt || !SensorsPanel.IsVisible)
-            return;
-        foreach (var (id, update) in _sensorValueUpdaters)
-            try { update(_app.Reading(id)); } catch { /* stale row */ }
-    }
 
     private void UpdateGpuPage()
     {
@@ -1881,66 +1627,70 @@ public sealed partial class MainWindow : Window
 
     private void UpdateValues()
     {
-        var applying = _app.Settings.ApplyCurves;
-        foreach (var (id, card) in _cards)
+        if (!IsVisible || WindowState == WindowState.Minimized) return;
+        if (HomePanel.IsVisible)
         {
-            var cfg = _app.Settings.Controls.FirstOrDefault(c => c.Id == id);
-            var commanded = applying && cfg is { Enabled: true } ? _app.CommandedPercent(cfg) : null;
-            var rpm = _app.PairedRpm(card.Item);
-            // NVML fan controls report their measured duty under the control's own id.
-            var actual = id.StartsWith("nvml:", StringComparison.OrdinalIgnoreCase) ? _app.Reading(id) : null;
-            // Fans with no tachometer but a manual RPM table get an interpolated virtual speed.
-            var estRpm = rpm is null ? EstimatedRpm(cfg, commanded ?? actual) : null;
+            var applying = _app.Settings.ApplyCurves;
+            foreach (var (id, card) in _cards)
+            {
+                var cfg = _app.Settings.Controls.FirstOrDefault(c => c.Id == id);
+                var commanded = applying && cfg is { Enabled: true } ? _app.CommandedPercent(cfg) : null;
+                var rpm = _app.PairedRpm(card.Item);
+                // NVML fan controls report their measured duty under the control's own id.
+                var actual = id.StartsWith("nvml:", StringComparison.OrdinalIgnoreCase) ? _app.Reading(id) : null;
+                // Fans with no tachometer but a manual RPM table get an interpolated virtual speed.
+                var estRpm = rpm is null ? EstimatedRpm(cfg, commanded ?? actual) : null;
 
-            if (commanded is double pct)
-            {
-                card.ValueLine.Text = rpm is not null
-                    ? $"{pct:0.#} %     {rpm:0} RPM"
-                    : estRpm is double ev1
-                        ? $"{pct:0.#} %     {ev1:0} RPM (est)"
-                        : actual is not null && Math.Abs(actual.Value - pct) > 1.5
-                            ? $"{pct:0.#} %   now {actual:0} %" // mid-ramp: target vs measured
-                            : $"{pct:0.#} %";
-                card.ValueLine.Foreground = ValueText;
-            }
-            else if (actual is not null)
-            {
-                card.ValueLine.Text = rpm is not null
-                    ? $"{actual:0} %     {rpm:0} RPM"
-                    : estRpm is double ev2
-                        ? $"{actual:0} %     {ev2:0} RPM (est)"
-                        : $"{actual:0} %";
-                card.ValueLine.Foreground = Secondary; // monitoring shows the real fan speed
-            }
-            else
-            {
-                card.ValueLine.Text = rpm is null
-                    ? (applying ? "—" : "auto")
-                    : $"auto     {rpm:0} RPM";
-                card.ValueLine.Foreground = Secondary;
+                if (commanded is double pct)
+                {
+                    card.ValueLine.Text = rpm is not null
+                        ? $"{pct:0.#} %     {rpm:0} RPM"
+                        : estRpm is double ev1
+                            ? $"{pct:0.#} %     {ev1:0} RPM (est)"
+                            : actual is not null && Math.Abs(actual.Value - pct) > 1.5
+                                ? $"{pct:0.#} %   now {actual:0} %" // mid-ramp: target vs measured
+                                : $"{pct:0.#} %";
+                    card.ValueLine.Foreground = ValueText;
+                }
+                else if (actual is not null)
+                {
+                    card.ValueLine.Text = rpm is not null
+                        ? $"{actual:0} %     {rpm:0} RPM"
+                        : estRpm is double ev2
+                            ? $"{actual:0} %     {ev2:0} RPM (est)"
+                            : $"{actual:0} %";
+                    card.ValueLine.Foreground = Secondary; // monitoring shows the real fan speed
+                }
+                else
+                {
+                    card.ValueLine.Text = rpm is null
+                        ? (applying ? "—" : "auto")
+                        : $"auto     {rpm:0} RPM";
+                    card.ValueLine.Foreground = Secondary;
+                }
+
+                // Surface exactly why a control is not moving (spec §3.4: no silent monitor-only).
+                if (applying && cfg is { Enabled: true } && _app.HasWriteError(id))
+                {
+                    card.ErrorLine.Text = _app.WriteError(card.Item) ?? "write failed";
+                    card.ErrorLine.IsVisible = true;
+                }
+                else
+                {
+                    card.ErrorLine.IsVisible = false;
+                }
             }
 
-            // Surface exactly why a control is not moving (spec §3.4: no silent monitor-only).
-            if (applying && cfg is { Enabled: true } && _app.HasWriteError(id))
+            foreach (var update in _curveUpdaters)
             {
-                card.ErrorLine.Text = _app.WriteError(card.Item) ?? "write failed";
-                card.ErrorLine.IsVisible = true;
+                try { update(); } catch { /* a stale card mid-rebuild — next tick is fine */ }
             }
-            else
-            {
-                card.ErrorLine.IsVisible = false;
-            }
+
         }
-
-        foreach (var update in _curveUpdaters)
-        {
-            try { update(); } catch { /* a stale card mid-rebuild — next tick is fine */ }
-        }
-
         UpdateCpuPage();
         UpdateGpuPage();
         UpdateSensorsPage();
-        UpdateStatus();
+        if (HomePanel.IsVisible) UpdateStatus();
     }
 
     private void UpdateStatus()

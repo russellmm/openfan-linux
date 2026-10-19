@@ -9,7 +9,8 @@ namespace OpenFan.Linux.Hw;
 /// <summary>
 /// Discovers controls / temperatures / tachs from the Linux hwmon sysfs tree and writes
 /// PWM duty (spec §4.1). The root is injectable so tests run against a fixture tree.
-/// Ids are stable across reboots by chip name: hwmon:{chipName}:{hwmonIndex}:pwm|temp|fan:{n}.
+/// Ids include the kernel-assigned hwmon index: hwmon:{chipName}:{hwmonIndex}:pwm|temp|fan:{n}.
+/// They are guarded by chip name but are not guaranteed stable across reboots or same-name device replacement.
 /// </summary>
 public sealed partial class HwmonBackend : ISensorBackend, IFanActuator
 {
@@ -21,7 +22,8 @@ public sealed partial class HwmonBackend : ISensorBackend, IFanActuator
     private static readonly Regex PwmControlRx = PwmOnlyPattern();
 
     private readonly string _root;
-    private readonly Func<string, bool> _chipEnabled;
+    private SourceSettings? _sources;
+    public void ConfigureSources(SourceSettings sources) => _sources = sources;
     private readonly Dictionary<string, int> _initialEnable = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<HardwareItem> _items = [];
 
@@ -29,10 +31,7 @@ public sealed partial class HwmonBackend : ISensorBackend, IFanActuator
     public HwmonBackend(string? sysfsRoot = null, SourceSettings? sources = null)
     {
         _root = sysfsRoot ?? "/sys/class/hwmon";
-        var disabled = new HashSet<string>(
-            (sources?.DisabledHwmonChips ?? []).Select(c => c.Trim().ToLowerInvariant()));
-        _chipEnabled = name =>
-            (sources is null || sources.Hwmon) && !disabled.Contains(name.ToLowerInvariant());
+        _sources = sources;
     }
 
     public string Name => BackendName;
@@ -41,8 +40,10 @@ public sealed partial class HwmonBackend : ISensorBackend, IFanActuator
     /// <summary>Reason the last SetPercent/SetDefault failed (shown on cards) — null when healthy.</summary>
     public string? LastWriteError { get; private set; }
 
-    /// <summary>Re-enumerates every tick so driver bind/unbind hot-plugs without a restart.</summary>
-    public IReadOnlyList<HardwareItem> Discover()
+    /// <summary>Re-enumerates inventory on demand; live sampling can reuse it between scans.</summary>
+    public IReadOnlyList<HardwareItem> Discover() => Discover(controlsOnly: false);
+    public IReadOnlyList<HardwareItem> DiscoverControls() => Discover(controlsOnly: true);
+    private IReadOnlyList<HardwareItem> Discover(bool controlsOnly)
     {
         _items.Clear();
         if (!Available)
@@ -51,14 +52,18 @@ public sealed partial class HwmonBackend : ISensorBackend, IFanActuator
         foreach (var dir in EnumerateHwmonDirs())
         {
             var chip = ReadAllText(Path.Combine(dir, "name"))?.Trim();
-            if (string.IsNullOrEmpty(chip) || !_chipEnabled(chip))
+            if (string.IsNullOrEmpty(chip) || (_sources?.Hwmon == false || _sources?.DisabledHwmonChips.Any(c => c.Trim().Equals(chip, StringComparison.OrdinalIgnoreCase)) == true))
                 continue;
             var index = HwmonDirIndex(dir);
             var group = $"{chip} (hwmon{index})";
 
-            foreach (var file in Directory.GetFiles(dir).OrderBy(f => f, Comparer<string>.Create(NaturalOrder)))
+            string[] files;
+            try { files = Directory.GetFiles(dir); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { continue; }
+            foreach (var file in files.OrderBy(f => f, Comparer<string>.Create(NaturalOrder)))
             {
                 var fileName = Path.GetFileName(file);
+                if (controlsOnly && !PwmControlRx.IsMatch(fileName)) continue;
 
                 var temp = TempInputRx.Match(fileName);
                 if (temp.Success)
@@ -121,13 +126,21 @@ public sealed partial class HwmonBackend : ISensorBackend, IFanActuator
         return _items;
     }
 
-    public void ReadInto(IDictionary<string, double?> readings)
+    public void ReadInto(IDictionary<string, double?> readings) => ReadInto(readings, null);
+    public void ReadInto(IDictionary<string, double?> readings, IReadOnlySet<string>? requested)
     {
+        // Validate each chip once per sample, rather than re-reading its name for every channel.
+        // Actuator calls keep their own fresh validation; no cached identity is trusted for writes.
+        var chipNames = new Dictionary<string, string?>(StringComparer.Ordinal);
         foreach (var item in _items)
         {
-            var path = SysPathFor(item.Id);
+            if (requested is not null && !requested.Contains(item.Id)) continue;
+            var path = SysPathFor(item.Id, chipNames);
             if (path is null)
+            {
+                readings[item.Id] = null;
                 continue;
+            }
 
             switch (item.Kind)
             {
@@ -287,7 +300,7 @@ public sealed partial class HwmonBackend : ISensorBackend, IFanActuator
             .OrderBy(HwmonDirIndex);
     }
 
-    private string? SysPathFor(string id)
+    private string? SysPathFor(string id, Dictionary<string, string?>? chipNames = null)
     {
         // hwmon:{chipName}:{hwmonIndex}:temp|fan|pwm:{n}
         var parts = id.Split(':');
@@ -310,7 +323,12 @@ public sealed partial class HwmonBackend : ISensorBackend, IFanActuator
 
         var dir = Path.Combine(_root, $"hwmon{index}");
         // Guard against a stale index after reboot: the chip name must still match.
-        var chip = ReadAllText(Path.Combine(dir, "name"))?.Trim();
+        string? chip;
+        if (chipNames is null || !chipNames.TryGetValue(dir, out chip))
+        {
+            chip = ReadAllText(Path.Combine(dir, "name"))?.Trim();
+            if (chipNames is not null) chipNames[dir] = chip;
+        }
         if (!string.Equals(chip, parts[1], StringComparison.OrdinalIgnoreCase))
             return null;
 
@@ -341,9 +359,9 @@ public sealed partial class HwmonBackend : ISensorBackend, IFanActuator
         {
             return File.ReadAllText(path);
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return null; // device vanished mid-scan
+            return null; // device vanished or permission changed mid-scan
         }
     }
 

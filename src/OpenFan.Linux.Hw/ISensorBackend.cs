@@ -15,7 +15,7 @@ public interface ISensorBackend : IDisposable
     /// <summary>False when the backing driver/driver node is unavailable (degrade, don't crash).</summary>
     bool Available { get; }
 
-    /// <summary>Re-enumerate controls / temperatures / tachs. Cheap enough to call every tick.</summary>
+    /// <summary>Re-enumerate controls / temperatures / tachs. Separate from live sampling; the app scans every five seconds or on Refresh.</summary>
     IReadOnlyList<HardwareItem> Discover();
 
     /// <summary>Read current values for all discovered items into <paramref name="readings"/>, keyed by item Id.</summary>

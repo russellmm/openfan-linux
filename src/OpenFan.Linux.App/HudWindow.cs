@@ -31,12 +31,10 @@ namespace OpenFan.Linux.App;
 public sealed class HudWindow : Window
 {
     private readonly FanApp _app;
-    private readonly CpuMonitor _cpu = new();
     private readonly UniformGrid _grid = new();
     private readonly List<(HudTileSettings Tile, TextBlock Value)> _views = [];
     private readonly List<string> _shown = [];   // last painted text per tile, for change detection
     private string _signature = "";
-    private CpuMonitor.Snapshot? _cpuSnapshot;   // set per Refresh, cleared at its end
     private bool _dragging;
     private bool _saveQueued;
     private bool _applyingPosition;      // our own corrective move, not a user drag
@@ -130,6 +128,7 @@ public sealed class HudWindow : Window
     /// <summary>Call on every refresh tick (FanApp.Ticked). Cheap when nothing changed.</summary>
     public void Refresh()
     {
+        if (!IsVisible) return;
         var tiles = _app.Settings.HudTiles;
 
         // Everything Rebuild() reads must be hashed here. Columns and scale were once left out, so the
@@ -139,7 +138,6 @@ public sealed class HudWindow : Window
         if (signature != _signature)
             Rebuild(tiles, signature);
 
-        _cpuSnapshot = null;
         for (var i = 0; i < _views.Count && i < tiles.Count; i++)
         {
             var text = HudFormat.Value(tiles[i].SourceId, Resolve(tiles[i].SourceId));
@@ -228,28 +226,8 @@ public sealed class HudWindow : Window
     /// control loop uses; socket/board power is resolved here because those are not in that dictionary
     /// (it carries what curves need, and curves do not drive off wattage).
     /// </summary>
-    private double? Resolve(string sourceId)
-    {
-        // One HSMP read per refresh shared by every CPU tile — three tiles would otherwise triple the
-        // sysfs traffic each second for the same sample.
-        var cpu = _cpuSnapshot ??= _cpu.Read();
-        if (sourceId.Equals("cpu:power:w", StringComparison.OrdinalIgnoreCase)) return cpu.PowerW;
-        if (sourceId.Equals("cpu:pptcap:w", StringComparison.OrdinalIgnoreCase)) return cpu.PptCapW;
-        if (sourceId.Equals("cpu:temp:c", StringComparison.OrdinalIgnoreCase)) return cpu.TempC;
-
-        if (sourceId.StartsWith("nvml:", StringComparison.OrdinalIgnoreCase) &&
-            sourceId.Contains(":power", StringComparison.OrdinalIgnoreCase))
-        {
-            var parts = sourceId.Split(':');
-            if (parts.Length >= 2)
-                foreach (var snap in _app.Nvml.SnapshotAll())
-                    if (snap.Uuid == parts[1])
-                        return snap.PowerDrawW;
-            return null;
-        }
-
-        return _app.SensorValue(sourceId);
-    }
+    // The overlay consumes the shared background sample. It never starts full GPU/CPU queries per tile.
+    private double? Resolve(string sourceId) => _app.HudValue(sourceId);
 
     private void OnPointerPressed(object? sender, PointerPressedEventArgs e)
     {

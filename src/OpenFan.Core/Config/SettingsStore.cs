@@ -13,6 +13,12 @@ public sealed class AppSettings
     /// <summary>Friendly display names for sensors, keyed by sensor id. Empty/absent = hardware name.</summary>
     public Dictionary<string, string> SensorAliases { get; set; } = [];
 
+    /// <summary>Sensor-table visibility. Hidden/collapsed groups pause optional polling, not fan-curve/HUD inputs.</summary>
+    public List<string> HiddenSensorGroups { get; set; } = [];
+    public List<string> CollapsedSensorDevices { get; set; } = [];
+    public List<string> CollapsedSensorGroups { get; set; } = [];
+    public bool ShowSensorStatus { get; set; }
+
     /// <summary>GPU power limits in watts keyed by NVML uuid; re-applied at startup via helper.</summary>
     public Dictionary<string, int> GpuPowerLimitsW { get; set; } = [];
 
@@ -184,6 +190,9 @@ public sealed class SettingsStore
         var json = File.ReadAllText(_path);
         var loaded = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
         loaded.Sources ??= new SourceSettings();
+        loaded.HiddenSensorGroups ??= [];
+        loaded.CollapsedSensorDevices ??= [];
+        loaded.CollapsedSensorGroups ??= [];
         loaded.SensorNicknames ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         loaded.PowerTargetsWatts ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         loaded.AccentColor = AccentHex.Normalize(loaded.AccentColor);

@@ -5,6 +5,16 @@ public enum HardwareKind
     Control,
     Temperature,
     Tach,
+    Voltage,
+    Current,
+    Power,
+    Energy,
+    Humidity,
+    Frequency,
+    Load,
+    Data,
+    Counter,
+    Status,
 }
 
 public sealed class HardwareItem
@@ -16,6 +26,9 @@ public sealed class HardwareItem
     public string Group { get; init; } = "";
     public int MinPercent { get; init; }
     public bool CanSet { get; init; } = true;
+    public string Unit { get; init; } = "";
+    public string Source { get; init; } = "";
+    public string Details { get; init; } = "";
 }
 
 public sealed class HardwareReading

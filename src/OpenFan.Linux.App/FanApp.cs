@@ -16,6 +16,14 @@ public sealed class FanApp : IDisposable
     public SettingsStore Store { get; }
     public AppSettings Settings { get; private set; }
     public HwmonBackend Hwmon { get; }
+    public LibSensorsBackend LibSensors { get; }
+    private bool _usingLibSensors, _usingNvml;
+    private bool _tickInFlight, _disposed, _forceInventoryRefresh;
+    private Task<Dictionary<string, double?>>? _pollTask;
+    private readonly EdacBackend _edac = new();
+    public string SensorReaderDescription => (_usingLibSensors ? "libsensors" : "sysfs fallback") +
+        (_usingNvml ? " + NVML" : "") + (_edac.Available ? " + EDAC" : "");
+    public string? SensorReaderError => LibSensors.Error;
     public NvmlBackend Nvml { get; } = new();
     public NvmlHelperClient NvmlHelper { get; } = new();
 
@@ -29,7 +37,18 @@ public sealed class FanApp : IDisposable
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly Dictionary<string, double?> _readings = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<HardwareItem> _inventory = [];
-    private string _fingerprint = "";
+    private string? _fingerprint;
+    private readonly InventoryRefreshCadence _inventoryCadence = new(TimeSpan.FromSeconds(5));
+    public SensorStatistics SensorStatistics { get; } = new();
+    public bool DeferInventoryDiscovery { get; set; }
+    public bool HomeVisible { get; set; } = true;
+    public bool GpuPageVisible { get; set; }
+    public double? HudValue(string sourceId) => Reading(SensorPollingPlan.ResolveHudId(_inventory, sourceId));
+    public void ResetSensorStatistics()
+    {
+        SensorStatistics.Reset();
+        SensorStatistics.Record(_readings);
+    }
 
     /// <summary>Control id set changed — UI rebuilds cards.</summary>
     public event Action? InventoryChanged;
@@ -48,6 +67,7 @@ public sealed class FanApp : IDisposable
         ActiveConfigPath = ResolveActivePath();
         Settings = new SettingsStore(ActiveConfigPath).Load();
         Hwmon = new HwmonBackend(null, Settings.Sources);
+        LibSensors = new LibSensorsBackend(Settings.Sources);
         _nvmlRoute = NvmlHelper.IsAvailable ? NvmlHelper : Nvml;
         Actuator = new CompositeActuator(("hwmon", Hwmon), ("nvml", _nvmlRoute));
 
@@ -229,9 +249,20 @@ public sealed class FanApp : IDisposable
 
     public void RefreshInventory(bool force = false)
     {
-        var merged = InventoryMerger.Merge(Hwmon.Discover(), Nvml.Available ? Nvml.Discover() : []);
-        var fingerprint = string.Join('|', merged.Select(i => i.Id).OrderBy(x => x, StringComparer.Ordinal));
-        if (force || fingerprint != _fingerprint)
+        if (_tickInFlight) { _forceInventoryRefresh |= force; return; }
+        if (DeferInventoryDiscovery && !force && !_forceInventoryRefresh) return;
+        force |= _forceInventoryRefresh;
+        _forceInventoryRefresh = false;
+        if (!_inventoryCadence.IsDue(_clock.Elapsed, force)) return;
+        Hwmon.ConfigureSources(Settings.Sources);
+        LibSensors.Sources = Settings.Sources;
+        _usingNvml = Settings.Sources.Nvml && Nvml.Available;
+        var libraryItems = LibSensors.Available ? LibSensors.Discover() : [];
+        _usingLibSensors = LibSensors.Available && LibSensors.Error is null;
+        var boardItems = _usingLibSensors ? libraryItems.Concat(Hwmon.DiscoverControls()) : Hwmon.Discover();
+        var merged = InventoryMerger.Merge(boardItems.Concat(_edac.Discover()), _usingNvml ? Nvml.Discover() : []);
+        var fingerprint = string.Join('|', merged.Select(i => $"{i.Id}\t{i.Name}\t{i.Group}").OrderBy(x => x, StringComparer.Ordinal));
+        if (fingerprint != _fingerprint)
         {
             _inventory = merged;
             _fingerprint = fingerprint;
@@ -246,15 +277,64 @@ public sealed class FanApp : IDisposable
 
     public void Tick()
     {
+        if (_disposed || _tickInFlight) return;
         RefreshInventory();
+        PublishReadings(ReadHardware(SensorPollingPlan.Create(_inventory, Settings, HomeVisible, GpuPageVisible)));
+    }
+
+    /// <summary>One outstanding read batch. Driver latency cannot block normal UI interaction.</summary>
+    public async Task TickAsync()
+    {
+        if (_disposed || _tickInFlight) return;
+        RefreshInventory();
+        _tickInFlight = true;
+        try
+        {
+            var requested = SensorPollingPlan.Create(_inventory, Settings, HomeVisible, GpuPageVisible);
+            _pollTask = Task.Run(() => ReadHardware(requested));
+            var readings = await _pollTask;
+            // A profile/source change during a read must not apply a sample from the old inventory.
+            if (_disposed || _forceInventoryRefresh) return;
+            PublishReadings(readings);
+        }
+        finally { _tickInFlight = false; }
+    }
+
+    private Dictionary<string, double?> ReadHardware(IReadOnlySet<string> requested)
+    {
+        // Nulls preserve history for paused channels without retaining stale current readings.
+        var readings = _inventory.ToDictionary(i => i.Id, _ => (double?)null, StringComparer.OrdinalIgnoreCase);
+        Hwmon.ReadInto(readings, requested);
+        if (_usingLibSensors) LibSensors.ReadInto(readings, requested);
+        if (_usingNvml) Nvml.ReadInto(readings, requested);
+        _edac.ReadInto(readings, requested);
+        if (requested.Contains("cpu:power:w") || requested.Contains("cpu:pptcap:w"))
+        {
+            var power = new HsmpPowerReader().Read();
+            if (requested.Contains("cpu:power:w")) readings["cpu:power:w"] = power?.PowerW;
+            if (requested.Contains("cpu:pptcap:w")) readings["cpu:pptcap:w"] = power?.PptCapW;
+        }
+        return readings;
+    }
+
+    private void PublishReadings(Dictionary<string, double?> readings)
+    {
         _readings.Clear();
-        Hwmon.ReadInto(_readings);
-        Nvml.ReadInto(_readings);
-
-        if (Settings.ApplyCurves)
-            Controller.Tick(Settings, _inventory, _readings, NowSeconds);
-
+        foreach (var (id, value) in readings) _readings[id] = value;
+        SensorStatistics.Record(_readings);
+        if (Settings.ApplyCurves && !Suspended)
+            Controller.Tick(Settings, _inventory, CurveReadings(), NowSeconds);
         Ticked?.Invoke();
+    }
+
+    private IReadOnlyDictionary<string, double?> CurveReadings()
+    {
+        // Show library readings faithfully, but retain the existing cooling-control validity rule.
+        // A floating -9 °C SuperIO pin must not become a new valid source for a live fan curve.
+        var filtered = new Dictionary<string, double?>(_readings, StringComparer.OrdinalIgnoreCase);
+        foreach (var item in _inventory.Where(i => i.Kind == HardwareKind.Temperature))
+            if (filtered.GetValueOrDefault(item.Id) is < 0 or > 150) filtered[item.Id] = null;
+        return filtered;
     }
 
     /// <summary>Commanded % for the card display — curve evaluation, not the sysfs read-back (spec §5).</summary>
@@ -263,7 +343,7 @@ public sealed class FanApp : IDisposable
         if (!cfg.Enabled || string.IsNullOrWhiteSpace(cfg.CurveId))
             return null;
         var curve = Settings.Curves.FirstOrDefault(c => c.Id == cfg.CurveId);
-        return curve is null ? null : FanController.Evaluate(curve, Settings.Curves, _readings);
+        return curve is null ? null : FanController.Evaluate(curve, Settings.Curves, CurveReadings());
     }
 
     /// <summary>Per-backend human reason for the last failed write (spec: never silently monitor-only).</summary>
@@ -283,6 +363,7 @@ public sealed class FanApp : IDisposable
     {
         RestoreAll();
         Settings = fresh;
+        _fingerprint = null; // New profiles must refresh aliases/visibility even with the same hardware.
         Save();
         RefreshInventory(force: true);
     }
@@ -291,7 +372,7 @@ public sealed class FanApp : IDisposable
     public double? CurveOutput(string curveId)
     {
         var curve = Settings.Curves.FirstOrDefault(c => c.Id == curveId);
-        return curve is null ? null : FanController.Evaluate(curve, Settings.Curves, _readings);
+        return curve is null ? null : FanController.Evaluate(curve, Settings.Curves, CurveReadings());
     }
 
     /// <summary>File the UI reads/writes right now — default config.json or a named file (e.g. myconfig.json).</summary>
@@ -355,9 +436,14 @@ public sealed class FanApp : IDisposable
 
     public void Dispose()
     {
+        _disposed = true;
+        // Drain only the background read task (not its UI continuation) before native cleanup.
+        try { _pollTask?.GetAwaiter().GetResult(); } catch (Exception ex) { ErrorLog.Write("Sensor shutdown", ex); }
         _logind.Dispose();
         NvmlHelper.Dispose(); // clean socket close → helper restores anything we owned
         Hwmon.Dispose();
+        LibSensors.Dispose();
+        _edac.Dispose();
         Nvml.Dispose();
     }
 
