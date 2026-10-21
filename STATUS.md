@@ -1,8 +1,42 @@
 # OpenFan Linux — Project Status & Handover
 
-**Last updated:** 2026-09-24 · **State: fully working, in daily use; code and documentation both pushed to `origin/main`.**
+**Last updated:** 2026-10-21 · **State: verified calibration build running; all pending source, tests and documentation included in this publication to `origin/main`.**
 Branch `main` → github.com/russellmm/openfan-linux. Spec / design: [`openfan-ubuntu.md`](openfan-ubuntu.md). Hardware findings journal: [`spike-notes.md`](spike-notes.md). Manual install chain (udev, modules-load, helper service): [`packaging/README.md`](packaging/README.md). CPU power CLI + boot persistence: [`tools/hsmp-control/README.md`](tools/hsmp-control/README.md).
 NOTE: history was rewritten once before the first push to scrub a sudo password from old STATUS revisions. Keep credentials out of these docs — that includes paths to local password/token files.
+
+## Current handoff and deployment
+
+Start with [October 21 handoff](HANDOVER-2026-10-21.md); [October 19 handoff](HANDOVER-2026-10-19.md)
+and [October 18 history](HANDOVER-2026-10-18.md) cover the earlier sensor and CPU work.
+Work in `/mnt/SOLIDIGM/ChatGPT/openfan-linux`.
+
+- Current app: `publish/calibration-app-final/openfan`, selected by menu/autostart/terminal launchers.
+  Preserve that local build directory while those launchers depend on it. The installed helper is
+  `/usr/local/lib/openfan/openfan-helper`, active and matching the verified fan-stop helper build.
+- **281 tests pass**; Release app/helper builds and headless UI checks are recorded in the handoff.
+  Latest calibration GUI tests used real read-only RPM with simulated actuator writes; earlier
+  fan-stop tests exercised the actual 5060 Ti and verified automatic/manual policy transitions.
+- NVIDIA **real fan RPM works**, including stopped-fan zero. GPU Calibrate links update when the
+  first real readings arrive. Slider/Point % synchronize, GPU sweeps respect hardware floors, and
+  temporary calibration takeover preserves saved Curve flags. OK saves per-fan points and avoid
+  flags to the active JSON. [Calibration guide](docs/fan-calibration.md).
+- A 0% NVIDIA target uses firmware automatic fan-stop; positive targets use manual control.
+  The PRO 6000's existing 30% floor stays enforced. Update both app and helper for the fan-stop fix.
+- Earlier published CPU core caps, compact/background sensor sampling, saved visibility and
+  collapse with paused optional polling, DDR5 temperatures/limits, and NVMe activity/SMART are
+  retained. [Sensor coverage](docs/sensor-data-audit.md), [NVMe data](docs/nvme-sensors.md),
+  [DRAM setup](DRAM-TEMPS-README.md), [motherboard research](docs/motherboard-sensor-map.md).
+- CPU **frequency-cap reboot persistence remains planned**, distinct from existing PPT power-limit
+  persistence. [Frequency persistence plan](docs/cpu-frequency-persistence-plan.md).
+- Active user profile: `/home/russellm/Documents/openfan2.json`. Deployment preserved it, its
+  calibration tables and 151 captured CPU/PWM/DRAM settings. Generated builds, local profiles,
+  backups, traces and reference images remain ignored rather than being published.
+
+## Historical notes — September 24, 2026
+
+The numbered sections below retain the older implementation journal. Their deployment paths,
+test counts, driver/OS observations and GPU-RPM limitations describe that earlier revision;
+use the current handoff above for present behavior and verification.
 
 ## 1. What this is
 Native Ubuntu app owning motherboard/case/AIO fans (hwmon sysfs) + NVIDIA GPU fans and power limits (NVML), with

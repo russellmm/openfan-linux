@@ -36,11 +36,13 @@
 
         <Grid ColumnDefinitions="Auto,Auto,*,Auto">
           <TextBlock Text="Point %" VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}" Margin="0,0,10,0" />
-          <NumericUpDown x:Name="PointPctBox" Grid.Column="1" Width="110" Minimum="0" Maximum="100" Increment="5" FormatString="0" />
+          <NumericUpDown x:Name="PointPctBox" Grid.Column="1" Width="110" Minimum="0" Maximum="100" Increment="5" FormatString="0"
+                         ToolTip.Tip="Follows the slider. Edit to override this point; moving the slider follows it again." />
           <Button x:Name="AddPointBtn" Grid.Column="3" Content="Add" MinWidth="120" Height="36" />
         </Grid>
 
         <Button x:Name="AutoStepBtn" Content="Auto step 20–100%" HorizontalAlignment="Stretch" Height="40" />
+        <TextBlock x:Name="StatusText" Foreground="#EF6B6B" TextWrapping="Wrap" IsVisible="False" />
       </StackPanel>
 
       <!-- Sample table -->

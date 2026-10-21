@@ -178,6 +178,8 @@ public sealed class NvmlBackend : ISensorBackend, IFanActuator, IGpuPowerWriter
     public const string BackendName = "nvml";
 
     private readonly List<Gpu> _gpus = [];
+    private readonly NvmlFanWriter _fanWriter = new(
+        NvmlNative.nvmlDeviceSetFanSpeed_v2, NvmlNative.nvmlDeviceSetDefaultFanSpeed_v2);
 
     public string Name => BackendName;
     public bool Available { get; }
@@ -497,8 +499,12 @@ public sealed class NvmlBackend : ISensorBackend, IFanActuator, IGpuPowerWriter
     {
         if (!TryParseFan(controlId, out var gpu, out var fan))
             return false;
-        var clamped = Math.Clamp(percent, gpu.MinPercent, 100);
-        var code = NvmlNative.nvmlDeviceSetFanSpeed_v2(gpu.Handle, fan, (uint)clamped);
+        var code = _fanWriter.SetPercent(gpu.Handle, fan, percent, gpu.MinPercent);
+        return RecordFanResult(code);
+    }
+
+    private bool RecordFanResult(int code)
+    {
         if (code == NvmlNative.Success)
             LastWriteError = null;
         else
@@ -514,7 +520,7 @@ public sealed class NvmlBackend : ISensorBackend, IFanActuator, IGpuPowerWriter
     {
         if (!TryParseFan(controlId, out var gpu, out var fan))
             return false;
-        return NvmlNative.nvmlDeviceSetDefaultFanSpeed_v2(gpu.Handle, fan) == NvmlNative.Success;
+        return RecordFanResult(NvmlNative.nvmlDeviceSetDefaultFanSpeed_v2(gpu.Handle, fan));
     }
 
     private bool TryParseFan(string id, out Gpu gpu, out uint fan)

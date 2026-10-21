@@ -11,7 +11,7 @@
 
     <StackPanel Grid.Row="0" Margin="0,0,0,12">
       <TextBlock x:Name="TitleText" FontSize="21" FontWeight="Bold" Foreground="#F2F2F2" />
-      <TextBlock Text="Enter the real fan RPM for each command %. Fans without a tachometer (NVML GPUs) show an estimated speed interpolated from this table."
+      <TextBlock Text="Enter measured fan RPM for each command %. Fans without a working tachometer show an estimated speed interpolated from this table."
                  Foreground="{StaticResource TextSecondary}" FontSize="13" TextWrapping="Wrap" Margin="0,4,0,0" />
     </StackPanel>
 

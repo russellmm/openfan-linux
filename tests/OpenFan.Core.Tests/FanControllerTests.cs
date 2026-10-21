@@ -6,6 +6,34 @@ namespace OpenFan.Core.Tests;
 
 public class FanControllerTests
 {
+    [Fact]
+    public void Calibration_pause_preserves_enabled_setting_and_does_not_undo_manual_command()
+    {
+        var actuator = new FakeActuator();
+        var controller = new FanController(actuator);
+        var settings = new AppSettings
+        {
+            Controls = [new() { Id = "fan0", Enabled = true, CurveId = "flat" }],
+            Curves = [new() { Id = "flat", Type = "flat", Percent = 50 }],
+        };
+        var inventory = new[] { ProFan("fan0") };
+        var readings = new Dictionary<string, double?>();
+        controller.Tick(settings, inventory, readings, 0);
+        controller.PausedControlId = "fan0";
+        actuator.SetPercent("fan0", 75); // calibration owns this command
+        controller.Tick(settings, inventory, readings, 1);
+        controller.Tick(settings, inventory, readings, 2);
+        actuator.Sets.Should().Equal(("fan0", 50), ("fan0", 75));
+        actuator.Defaults.Should().BeEmpty();
+        settings.Controls[0].Enabled.Should().BeTrue();
+        controller.PausedControlId = null;
+        controller.ResetApplies();
+        controller.Tick(settings, inventory, readings, 3);
+        actuator.Sets.Last().Should().Be(("fan0", 50));
+        controller.RestoreAll();
+        actuator.Defaults.Should().Equal("fan0");
+    }
+
     private sealed class FakeActuator : IFanActuator
     {
         public List<(string Id, int Percent)> Sets { get; } = [];

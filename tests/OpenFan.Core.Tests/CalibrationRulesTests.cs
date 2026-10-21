@@ -5,6 +5,14 @@ namespace OpenFan.Core.Tests;
 
 public class CalibrationRulesTests
 {
+    [Theory]
+    [InlineData(0, "20,30,40,50,60,70,80,90,100")]
+    [InlineData(30, "30,40,50,60,70,80,90,100")]
+    [InlineData(35, "35,40,50,60,70,80,90,100")]
+    [InlineData(100, "100")]
+    public void Sweep_respects_hardware_floor_without_duplicate_or_mislabeled_steps(int minimum, string expected)
+        => string.Join(",", CalibrationRules.SweepPercents(minimum)).Should().Be(expected);
+
     [Fact]
     public void Requires_two_points()
     {

@@ -12,7 +12,7 @@ using OpenFan.Core.Config;
 namespace OpenFan.Linux.App;
 
 /// <summary>
-/// Manual Command% -> RPM table for fans that cannot report speed (NVML GPUs on driver 595).
+/// Manual Command% -> RPM table for fans that cannot report speed.
 /// The saved points drive a virtual, interpolated RPM readout on the card.
 /// </summary>
 public sealed partial class ManualRpmWindow : Window

@@ -68,17 +68,25 @@ openfan-linux --apply-once hwmon:nct6799:10:pwm:4 40 --seconds 15
 # openfan-helper — privileged GPU fan + CPU socket power daemon (one-time setup)
 
 The Linux NVIDIA driver gates NVML fan **writes** on root euid (reads are free), and so does the
-HSMP socket power limit. `openfan-helper` runs as a small root systemd service and exposes exactly
-three capabilities for members of the `openfan` group: setting/restoring NVIDIA fans, setting the
-CPU socket power limit (PPT), and setting cpufreq maximum-frequency policies. hwmon PWM does **not** go through it (udev ACL covers that). The GUI
-never needs root. It starts even with no NVIDIA driver present, as long as `amd_hsmp_hwmon` exists — and if
-**none** of NVML, `amd_hsmp_hwmon`, or cpufreq policies is available it exits with status 2 ("helper has no job") rather than serving a
+HSMP socket power limit. `openfan-helper` runs as a small root systemd service and exposes narrow
+capabilities for members of the `openfan` group: setting/restoring NVIDIA fans, setting the
+CPU socket power limit (PPT), setting cpufreq maximum-frequency policies, and reading fixed NVMe
+SMART logs. hwmon PWM does **not** go through it (udev ACL covers that). The GUI
+never needs root. It starts without NVIDIA when another supported capability is present. If
+**none** of NVML, `amd_hsmp_hwmon`, cpufreq policies or local NVMe controllers is available it exits with status 2 ("helper has no job") rather than serving a
 socket that can do nothing.
+
+For the October 21 fan-stop fix, rebuild and reinstall the helper as well as the app. NVIDIA zero
+targets restore default policy to allow firmware fan-stop; positive targets stay manual, with
+nonzero hardware floors retained. An older helper still sends manual zero and can keep the
+5060 Ti spinning despite a 0% curve target. GPU calibration uses the existing fan commands and
+real RPM reads; the subsequent calibration UI update requires no additional helper protocol.
+See [fan calibration and saving](../docs/fan-calibration.md).
 
 ## Install (after building the repo)
 
 ```sh
-cd /mnt/8TB/deepseek-linux/projects/openfan-linux
+cd /mnt/SOLIDIGM/ChatGPT/openfan-linux
 dotnet publish src/OpenFan.Linux.Helper -c Release -r linux-x64 --self-contained true \
   -p:PublishSingleFile=true -o /tmp/openfan-helper-build
 sudo install -m 755 /tmp/openfan-helper-build/openfan-helper /usr/local/lib/openfan/

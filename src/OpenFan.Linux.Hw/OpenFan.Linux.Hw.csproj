@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\OpenFan.Core\OpenFan.Core.csproj" />
+    <InternalsVisibleTo Include="OpenFan.Core.Tests" />
   </ItemGroup>
 
   <ItemGroup>

@@ -5,6 +5,33 @@ namespace OpenFan.Core.Tests;
 public class SettingsStoreTests
 {
     [Fact]
+    public void Calibration_points_and_avoid_flags_survive_json_save_and_reload_per_fan()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "OpenFanTests", Guid.NewGuid().ToString("N"), "named-profile.json");
+        var settings = new AppSettings
+        {
+            Controls = [new() { Id = "nvml:GPU-1:fan:0", Enabled = true,
+                Calibration = [new(30, 1200.5), new(60, 1850.2, true), new(100, 2867)] },
+                new() { Id = "nvml:GPU-1:fan:1", Enabled = false, Calibration = [new(30, 1180), new(100, 2800)] }],
+        };
+        try
+        {
+            new SettingsStore(path).Save(settings);
+            var loaded = new SettingsStore(path).Load();
+            loaded.Controls[0].Calibration.Should().Equal(settings.Controls[0].Calibration);
+            loaded.Controls[1].Calibration.Should().Equal(settings.Controls[1].Calibration);
+            loaded.Controls[0].Enabled.Should().BeTrue();
+            loaded.Controls[1].Enabled.Should().BeFalse();
+            using var json = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+            var point = json.RootElement.GetProperty("controls")[0].GetProperty("calibration")[1];
+            point.GetProperty("percent").GetInt32().Should().Be(60);
+            point.GetProperty("rpm").GetDouble().Should().Be(1850.2);
+            point.GetProperty("avoid").GetBoolean().Should().BeTrue();
+        }
+        finally { if (Directory.Exists(Path.GetDirectoryName(path))) Directory.Delete(Path.GetDirectoryName(path)!, true); }
+    }
+
+    [Fact]
     public void Round_trips_controls_and_curves()
     {
         var dir = Path.Combine(Path.GetTempPath(), "OpenFanTests", Guid.NewGuid().ToString("N"));

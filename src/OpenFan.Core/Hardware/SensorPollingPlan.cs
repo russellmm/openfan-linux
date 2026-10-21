@@ -51,7 +51,7 @@ public static class SensorPollingPlan
     }
 
     public static HashSet<string> Create(IReadOnlyList<HardwareItem> inventory, AppSettings settings,
-        bool homeVisible = false, bool gpuPageVisible = false)
+        bool homeVisible = false, bool gpuPageVisible = false, string? calibrationControlId = null)
     {
         var requested = inventory.Where(i => TableVisible(i, settings) && !settings.CollapsedSensorGroups.Contains(Group(i)) && !settings.CollapsedSensorDevices.Contains(CollapseKey(i)))
             .Select(i => i.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -85,6 +85,13 @@ public static class SensorPollingPlan
         }
         if (gpuPageVisible)
             foreach (var item in inventory.Where(i => i.Backend == "nvml")) requested.Add(item.Id);
+        if (inventory.FirstOrDefault(i => i.Kind == HardwareKind.Control && i.Id == calibrationControlId) is { } calibrating)
+        {
+            requested.Add(calibrating.Id);
+            var paired = settings.Controls.FirstOrDefault(c => c.Id == calibrating.Id)?.PairedTachId;
+            requested.Add(!string.IsNullOrWhiteSpace(paired) ? paired : calibrating.Id.Replace(
+                calibrating.Backend == "nvml" ? ":fan:" : ":pwm:", calibrating.Backend == "nvml" ? ":tach:" : ":fan:"));
+        }
         // Drop stale references. The two fixed legacy CPU power ids support the raw sysfs fallback.
         requested.IntersectWith(inventory.Select(i => i.Id).Concat(settings.HudEnabled
             ? settings.HudTiles.Select(t => t.SourceId).Where(id => id is "cpu:power:w" or "cpu:pptcap:w") : []));

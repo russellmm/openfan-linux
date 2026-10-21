@@ -290,7 +290,7 @@ public sealed class FanApp : IDisposable
     {
         if (_disposed || _tickInFlight) return;
         RefreshInventory();
-        PublishReadings(ReadHardware(SensorPollingPlan.Create(_inventory, Settings, HomeVisible, GpuPageVisible)));
+        PublishReadings(ReadHardware(SensorPollingPlan.Create(_inventory, Settings, HomeVisible, GpuPageVisible, Controller.PausedControlId)));
     }
 
     /// <summary>One outstanding read batch. Driver latency cannot block normal UI interaction.</summary>
@@ -301,7 +301,7 @@ public sealed class FanApp : IDisposable
         _tickInFlight = true;
         try
         {
-            var requested = SensorPollingPlan.Create(_inventory, Settings, HomeVisible, GpuPageVisible);
+            var requested = SensorPollingPlan.Create(_inventory, Settings, HomeVisible, GpuPageVisible, Controller.PausedControlId);
             _pollTask = Task.Run(() => ReadHardware(requested));
             var readings = await _pollTask;
             // A profile/source change during a read must not apply a sample from the old inventory.

@@ -28,6 +28,14 @@ Threadripper 9970X + RTX 5060 Ti / 2× RTX PRO 6000 Blackwell (driver 615.x).
 
 - **Home** — every PWM control as a card: click-to-rename, curve assignment dropdown, live duty %, tach RPM,
   per-fan manual calibration window (auto-step sweep with avoid-band support).
+  NVIDIA curve targets of 0% use the GPU's automatic policy to allow firmware fan-stop;
+  positive targets resume manual control. The card shows **0% (auto)** with measured RPM,
+  since the GPU can still run its fan when its own thermal rules require it. Nonzero hardware
+  floors, including the RTX PRO 6000's 30%, remain enforced. Update the helper as well as the app.
+  **Calibrate** becomes available when a real paired RPM reading arrives, including NVIDIA fans.
+  Point % follows the slider unless manually overridden for a point; moving the slider follows it again.
+  **OK** saves points and avoid flags directly into the active configuration JSON; Cancel discards
+  table edits. Save configuration also includes the accepted points. See [fan calibration](docs/fan-calibration.md).
 - **Curve library** — curves are first-class named objects; assign one curve to many fans.
   - *Flat*: fixed % · *Graph*: temperature→% points with hysteresis + live mini-preview · *Mix*: max/min/average of other curves
   - Save/load whole setups as portable JSON profiles.

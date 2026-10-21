@@ -6,6 +6,21 @@ namespace OpenFan.Core.Tests;
 
 public sealed class SensorPollingPlanTests
 {
+    [Fact]
+    public void Calibration_retains_real_tach_reads_with_hidden_groups_and_no_visible_home()
+    {
+        var control = new HardwareItem { Id = "nvml:gpu:fan:1", Backend = "nvml", Kind = HardwareKind.Control, Name = "Fan" };
+        var tach = new HardwareItem { Id = "nvml:gpu:tach:1", Backend = "nvml", Kind = HardwareKind.Tach, Name = "RPM" };
+        var custom = new HardwareItem { Id = "hwmon:board:0:fan:1", Backend = "hwmon", Kind = HardwareKind.Tach, Name = "Paired RPM" };
+        var settings = new AppSettings { HiddenSensorGroups = SensorPollingPlan.GroupOrder.ToList(), Controls = [new() { Id = control.Id }] };
+        HardwareItem[] inventory = [control, tach, custom];
+        SensorPollingPlan.Create(inventory, settings).Should().BeEmpty();
+        SensorPollingPlan.Create(inventory, settings, calibrationControlId: control.Id).Should().BeEquivalentTo([control.Id, tach.Id]);
+        settings.Controls[0].PairedTachId = custom.Id;
+        SensorPollingPlan.Create(inventory, settings, calibrationControlId: control.Id).Should().BeEquivalentTo([control.Id, custom.Id]);
+        SensorPollingPlan.Create(inventory, settings, calibrationControlId: "missing").Should().BeEmpty();
+    }
+
     private static readonly HardwareItem Temp = new() { Id = "hwmon:k10temp:6:temp:1", Name = "Tctl", Backend = "hwmon", Kind = HardwareKind.Temperature, Group = "k10temp (hwmon6)" };
     private static readonly HardwareItem Ecc = new() { Id = "edac:mc0:corrected:count", Name = "Corrected errors", Backend = "edac", Kind = HardwareKind.Counter, Group = "mc0" };
     private static readonly HardwareItem GpuPower = new() { Id = "nvml:gpu:metric:power", Name = "Board power", Backend = "nvml", Kind = HardwareKind.Power, Group = "GPU 1" };

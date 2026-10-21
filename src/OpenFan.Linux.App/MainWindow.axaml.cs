@@ -801,6 +801,9 @@ public sealed partial class MainWindow : Window
         public required CheckBox CurveCheck { get; init; }
         public required ComboBox Mode { get; init; }
         public required TextBlock ErrorLine { get; init; }
+        public Button? CalibrateLink { get; init; }
+        public Button? RpmTableLink { get; init; }
+        public TextBlock? CalibrationStatus { get; init; }
     }
 
     private async Task DelayedStartAsync(int seconds)
@@ -1473,6 +1476,8 @@ public sealed partial class MainWindow : Window
             Foreground = ValueText,
             Margin = new Thickness(0, 2, 0, 0),
         };
+        if (item.Backend == "nvml" && item.MinPercent == 0)
+            ToolTip.SetTip(valueLine, "Curve target and measured RPM. At 0%, automatic GPU control allows fan-stop; the GPU may still run its fan when needed. Positive targets use manual control.");
 
         var errorLine = new TextBlock
         {
@@ -1530,17 +1535,14 @@ public sealed partial class MainWindow : Window
             UpdateValues();
         };
 
-        // Calibrate link — only where a tachometer exists to verify speed (GPU fans have none
-        // on this driver, so their commanded % is taken at face value).
+        // Build once from inventory; real RPM availability changes after the first sample.
         var links = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
         var tachId = _app.PairedTachId(item);
-        // GPU fans keep tach items in inventory but NVML reports no RPM on driver 595 —
-        // calibration needs real speed feedback, so require an actual reading for nvml controls.
-        var tachWorks = _app.Inventory.Any(i => i.Id == tachId)
-            && (!item.Id.StartsWith("nvml:", StringComparison.OrdinalIgnoreCase) || _app.Reading(tachId) is not null);
-        if (tachWorks)
+        Button? calLink = null, tableLink = null;
+        TextBlock? calibrationStatus = null;
+        if (item.CanSet && _app.Inventory.Any(i => i.Id == tachId && i.Kind == HardwareKind.Tach))
         {
-            var calLink = new Button
+            calLink = new Button
             {
                 Content = "Calibrate",
                 Background = Brushes.Transparent,
@@ -1549,25 +1551,25 @@ public sealed partial class MainWindow : Window
                 Foreground = Accent,
                 FontWeight = FontWeight.SemiBold,
             };
-            calLink.Click += (_, _) =>
-                new CalibrationWindow(_app, item).Show(this); // hands the fan over; resumes on close
+            ToolTip.SetTip(calLink, "Calibrate using this fan's measured RPM. Available when a real RPM reading is present.");
+            calLink.IsEnabled = _app.PairedRpm(item) is not null;
+            calLink.Click += async (_, _) =>
+            {
+                if (_app.Controller.PausedControlId is not null || _app.PairedRpm(item) is null) return;
+                await new CalibrationWindow(_app, item).ShowDialog(this);
+                RebuildCards();
+                UpdateValues();
+            };
             links.Children.Add(calLink);
-
-            if (existingCfg is { Calibration.Count: >= 2 })
-                links.Children.Add(new TextBlock
-                {
-                    Text = $"calibrated ✓ ({existingCfg.Calibration.Count} pts)",
-                    Foreground = Secondary,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    FontSize = 12,
-                });
+            calibrationStatus = new TextBlock { Foreground = Secondary, VerticalAlignment = VerticalAlignment.Center, FontSize = 12 };
+            links.Children.Add(calibrationStatus);
         }
-        else if (item.Id.StartsWith("nvml:", StringComparison.OrdinalIgnoreCase))
+        if (item.Id.StartsWith("nvml:", StringComparison.OrdinalIgnoreCase))
         {
             // No tachometer feedback on these fans: let the user supply a Command% -> RPM table
             // (e.g. measured with a tachometer or copied from Windows OpenFan), and the card shows
             // an interpolated virtual speed instead of bare %.
-            var tableLink = new Button
+            tableLink = new Button
             {
                 Content = existingCfg is { Calibration.Count: >= 2 } ? "RPM table ✓" : "RPM table",
                 Background = Brushes.Transparent,
@@ -1613,6 +1615,7 @@ public sealed partial class MainWindow : Window
         _cards[item.Id] = new CardUi
         {
             Item = item, ValueLine = valueLine, CurveCheck = check, Mode = mode, ErrorLine = errorLine,
+            CalibrateLink = calLink, RpmTableLink = tableLink, CalibrationStatus = calibrationStatus,
         };
         return Scaled(card);
     }
@@ -1636,20 +1639,29 @@ public sealed partial class MainWindow : Window
                 var cfg = _app.Settings.Controls.FirstOrDefault(c => c.Id == id);
                 var commanded = applying && cfg is { Enabled: true } ? _app.CommandedPercent(cfg) : null;
                 var rpm = _app.PairedRpm(card.Item);
+                if (card.CalibrateLink is { } calibrate)
+                    calibrate.IsEnabled = rpm is not null && _app.Controller.PausedControlId is null;
+                if (card.RpmTableLink is { } table)
+                    table.IsVisible = card.CalibrateLink is null || rpm is null;
+                if (card.CalibrationStatus is { } calibration)
+                    calibration.Text = cfg is { Calibration.Count: >= 2 } ? $"calibrated ✓ ({cfg.Calibration.Count} pts)" : "";
                 // NVML fan controls report their measured duty under the control's own id.
                 var actual = id.StartsWith("nvml:", StringComparison.OrdinalIgnoreCase) ? _app.Reading(id) : null;
+                var automaticZero = commanded == 0 && Math.Max(cfg?.MinPercent ?? 0, card.Item.MinPercent) == 0
+                    && id.StartsWith("nvml:", StringComparison.OrdinalIgnoreCase);
                 // Fans with no tachometer but a manual RPM table get an interpolated virtual speed.
-                var estRpm = rpm is null ? EstimatedRpm(cfg, commanded ?? actual) : null;
+                var estRpm = rpm is null && !automaticZero ? EstimatedRpm(cfg, commanded ?? actual) : null;
 
                 if (commanded is double pct)
                 {
+                    var targetText = automaticZero ? "0 % (auto)" : $"{pct:0.#} %";
                     card.ValueLine.Text = rpm is not null
-                        ? $"{pct:0.#} %     {rpm:0} RPM"
+                        ? $"{targetText}     {rpm:0} RPM"
                         : estRpm is double ev1
-                            ? $"{pct:0.#} %     {ev1:0} RPM (est)"
+                            ? $"{targetText}     {ev1:0} RPM (est)"
                             : actual is not null && Math.Abs(actual.Value - pct) > 1.5
-                                ? $"{pct:0.#} %   now {actual:0} %" // mid-ramp: target vs measured
-                                : $"{pct:0.#} %";
+                                ? $"{targetText}   now {actual:0} %" // mid-ramp: target vs measured
+                                : targetText;
                     card.ValueLine.Foreground = ValueText;
                 }
                 else if (actual is not null)

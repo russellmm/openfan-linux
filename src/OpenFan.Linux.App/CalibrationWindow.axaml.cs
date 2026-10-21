@@ -10,10 +10,10 @@ using OpenFan.Core.Hardware;
 namespace OpenFan.Linux.App;
 
 /// <summary>
-/// Manual fan calibration (reference: Windows "Manual Fan Calibration"): drives one board fan by
+/// Manual fan calibration: drives one board or GPU fan by
 /// hand while the controller hands it over, samples (command %, RPM) pairs — manually or via an
 /// auto sweep — flags avoid-zones, and validates before persisting into ControlSettings.Calibration.
-/// GPU fans are excluded upstream: NVML exposes no tach on this driver, so % is taken at face value.
+/// Only real tach readings are recorded; a missing reading is never a zero-RPM sample.
 /// </summary>
 public sealed partial class CalibrationWindow : Window
 {
@@ -31,7 +31,6 @@ public sealed partial class CalibrationWindow : Window
     private readonly FanApp _app;
     private readonly HardwareItem _item;
     private readonly string _tachId;
-    private readonly bool _wasEnabled;
     private readonly Action? _onDone;
     private readonly List<CalibrationSampleDto> _samples = [];
     private readonly List<RowCtl> _rows = [];
@@ -41,9 +40,13 @@ public sealed partial class CalibrationWindow : Window
     private int _sweepIndex;
     private DateTime _dwellUntil;
     private bool _finalized;
+    private bool _commandSucceeded;
+    private bool _movingSweepSlider;
 
     public CalibrationWindow(FanApp app, HardwareItem item, Action? onDone = null)
     {
+        if (app.Controller.PausedControlId is not null)
+            throw new InvalidOperationException("Another fan is already being calibrated.");
         InitializeComponent();
         _app = app;
         _item = item;
@@ -51,28 +54,29 @@ public sealed partial class CalibrationWindow : Window
         _tachId = app.PairedTachId(item);
 
         var cfg = Cfg();
-        _wasEnabled = cfg.Enabled;
-        cfg.Enabled = false; // controller restores the control and skips it while we drive by hand
-        _app.Save();
+        // This is a transient takeover, not an edit to the saved Curve checkbox. Pausing
+        // before the first manual command prevents the next curve tick undoing it.
+        _app.Controller.PausedControlId = item.Id;
 
         FanNameText.Text = string.IsNullOrWhiteSpace(cfg.Name) ? item.Name : cfg.Name;
         SubtitleText.Text = "Use the card to adjust fan % and observe its RPM. " +
-                            "The fan is under manual control while this window is open.";
+                            (item.Backend == "nvml" && item.MinPercent == 0
+                                ? "At 0%, the GPU uses automatic fan-stop; positive targets use manual control."
+                                : "The fan is under manual control while this window is open.");
 
         _samples.AddRange(cfg.Calibration);
         RebuildRows();
 
+        DutySlider.Minimum = Math.Clamp(item.MinPercent, 0, 100);
+        DutySlider.Value = DutySlider.Minimum;
         DutySlider.ValueChanged += (_, e) =>
         {
-            var p = (int)e.NewValue;
-            PctText.Text = $"{p} %";
-            if (!_finalized)
-                _app.ManualSetPercent(_item.Id, p);
-            UpdateAddCurrentLabel();
+            if (_sweep is not null && !_movingSweepSlider) EndSweep();
+            ApplyCommand((int)e.NewValue);
         };
 
-        AddCurrentBtn.Click += (_, _) => AddOrReplace((int)DutySlider.Value, _app.Reading(_tachId) ?? 0);
-        AddPointBtn.Click += (_, _) => AddOrReplace((int)(PointPctBox.Value ?? 0), _app.Reading(_tachId) ?? 0);
+        AddCurrentBtn.Click += (_, _) => AddMeasuredPoint((int)DutySlider.Value);
+        AddPointBtn.Click += (_, _) => AddMeasuredPoint((int)(PointPctBox.Value ?? 0));
         AutoStepBtn.Click += (_, _) => ToggleSweep();
 
         CancelBtn.Click += (_, _) => Close();
@@ -83,8 +87,33 @@ public sealed partial class CalibrationWindow : Window
         _timer.Tick += (_, _) => Tick();
         _timer.Start();
 
-        DutySlider.Value = 0; // deterministic start: fan commanded to a known duty immediately
+        EndSweep();
+        ApplyCommand((int)DutySlider.Value); // explicitly apply even when Value was already zero
         Validate();
+    }
+
+    private void ApplyCommand(int percent)
+    {
+        if (_finalized) return;
+        PctText.Text = $"{percent} %";
+        PointPctBox.Value = percent; // manual edits remain an override until the next slider move
+        _commandSucceeded = _app.ManualSetPercent(_item.Id, percent);
+        StatusText.Text = _commandSucceeded ? "" : _app.WriteError(_item) ?? "Fan command failed; no sample will be recorded.";
+        StatusText.IsVisible = !_commandSucceeded;
+        if (!_commandSucceeded && _sweep is not null) EndSweep();
+        UpdateAddCurrentLabel();
+    }
+
+    private double? MeasuredRpm()
+    {
+        var rpm = _app.Reading(_tachId);
+        return rpm is double value && double.IsFinite(value) && value >= 0 ? value : null;
+    }
+
+    private void AddMeasuredPoint(int percent)
+    {
+        if (_commandSucceeded && MeasuredRpm() is double rpm)
+            AddOrReplace(percent, rpm);
     }
 
     // Unconfigured fans have no settings row yet — create one (same as the main window does).
@@ -104,16 +133,20 @@ public sealed partial class CalibrationWindow : Window
 
     private void Tick()
     {
-        var rpm = _app.Reading(_tachId);
-        var p = (int)DutySlider.Value;
-        LiveRpmText.Text = rpm is null ? "— RPM" : $"{p} %   ({rpm:0.#} RPM)";
+        var rpm = MeasuredRpm();
         UpdateAddCurrentLabel();
 
         if (_sweep is null || DateTime.Now < _dwellUntil)
             return;
 
-        if (rpm is not null)
-            AddOrReplace(_sweep[_sweepIndex], rpm.Value); // dwell elapsed → record this step
+        if (!_commandSucceeded || rpm is null)
+        {
+            EndSweep();
+            StatusText.Text = "Sweep stopped: no measured RPM. No point was added for this step.";
+            StatusText.IsVisible = true;
+            return;
+        }
+        AddOrReplace(_sweep[_sweepIndex], rpm.Value); // dwell elapsed → record this step
 
         _sweepIndex++;
         if (_sweepIndex < _sweep.Length)
@@ -129,7 +162,7 @@ public sealed partial class CalibrationWindow : Window
             EndSweep(); // clicking again stops the sweep, keeping everything sampled so far
             return;
         }
-        _sweep = [20, 30, 40, 50, 60, 70, 80, 90, 100];
+        _sweep = CalibrationRules.SweepPercents(_item.MinPercent);
         _sweepIndex = 0;
         GoToSweepStep();
     }
@@ -137,15 +170,22 @@ public sealed partial class CalibrationWindow : Window
     private void GoToSweepStep()
     {
         var p = _sweep![_sweepIndex];
-        DutySlider.Value = p; // slider handler drives the fan + readout
-        _dwellUntil = DateTime.Now.AddSeconds(3.5);
+        _movingSweepSlider = true;
+        try
+        {
+            if ((int)DutySlider.Value == p) ApplyCommand(p);
+            else DutySlider.Value = p; // slider handler drives the fan + readout
+        }
+        finally { _movingSweepSlider = false; }
+        if (_sweep is null) return; // a rejected command stopped the sweep
+        _dwellUntil = DateTime.Now.AddSeconds(_item.Backend == "nvml" ? 8 : 3.5);
         AutoStepBtn.Content = $"Sweeping… {p} % — click to stop";
     }
 
     private void EndSweep()
     {
         _sweep = null;
-        AutoStepBtn.Content = "Auto step 20–100%";
+        AutoStepBtn.Content = $"Auto step {CalibrationRules.SweepPercents(_item.MinPercent)[0]}–100%";
     }
 
     // ---- sample table --------------------------------------------------------
@@ -268,8 +308,10 @@ public sealed partial class CalibrationWindow : Window
 
     private void UpdateAddCurrentLabel()
     {
-        var rpm = _app.Reading(_tachId);
+        var rpm = MeasuredRpm();
+        LiveRpmText.Text = rpm is null ? "— RPM" : $"{(int)DutySlider.Value} %   ({rpm:0.#} RPM)";
         AddCurrentBtn.Content = $"Add ({(int)DutySlider.Value}%, {(rpm is null ? "—" : $"{rpm:0} RPM")})";
+        AddCurrentBtn.IsEnabled = AddPointBtn.IsEnabled = _commandSucceeded && rpm is not null;
     }
 
     private void OnOk()
@@ -294,10 +336,8 @@ public sealed partial class CalibrationWindow : Window
         _timer.Stop();
         _sweep = null;
         _app.ManualRestore(_item.Id); // back to the pre-takeover auto mode…
-
-        var cfg = Cfg();
-        cfg.Enabled = _wasEnabled; // …and the controller resumes if the fan was armed
-        _app.Save();
+        _app.Controller.PausedControlId = null;
+        _app.Controller.ResetApplies(); // …then resume the saved curve on the next sample
         _onDone?.Invoke();
     }
 }

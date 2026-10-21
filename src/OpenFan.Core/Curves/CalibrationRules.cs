@@ -4,6 +4,13 @@ namespace OpenFan.Core.Curves;
 
 public static class CalibrationRules
 {
+    /// <summary>Automatic calibration never labels a clamped hardware-floor command as a lower point.</summary>
+    public static int[] SweepPercents(int minimum)
+    {
+        var start = Math.Clamp(Math.Max(20, minimum), 0, 100);
+        return new[] { start }.Concat(Enumerable.Range(2, 9).Select(n => n * 10).Where(p => p > start)).ToArray();
+    }
+
     public static bool HasAtLeastTwoPoints(IReadOnlyList<CalibrationSampleDto> samples)
         => samples.Count >= 2;
 
