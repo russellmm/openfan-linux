@@ -150,6 +150,8 @@ Frequency caps are live until reboot or another power tool changes them. They ar
 
 The proposed reboot-persistence design is documented in [the persistence plan](docs/cpu-frequency-persistence-plan.md); persistence is not enabled yet.
 
+**Known issue:** after power-saver, switching back to Balanced/Performance can leave every ceiling stuck at 4,000 MHz even though boost is back on. See [CPU-BOOST-CLAMP-README.md](CPU-BOOST-CLAMP-README.md) for the cause, the workaround (Hardware maximum after switching) and the planned fix.
+
 Interface reference: [Linux CPUFreq documentation](https://docs.kernel.org/admin-guide/pm/cpufreq.html).
 
 ### Threadripper socket power: PPT is settable, TDP/TjMax are read-only
