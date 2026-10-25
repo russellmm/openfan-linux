@@ -3,8 +3,8 @@ using Tmds.DBus.Protocol;
 namespace OpenFan.Linux.Hw;
 
 /// <summary>
-/// Listens for logind PrepareForSleep on the system bus (Tmds.DBus.Protocol 0.20 — the version
-/// Avalonia.FreeDesktop pins; do NOT upgrade it independently or Avalonia's X11 init TypeLoads break).
+/// Listens for logind PrepareForSleep on the system bus. The patched 0.21.3 protocol library
+/// is verified with the current Avalonia desktop through an isolated GUI startup check.
 /// Suspend → caller restores fans to board/firmware control (thermal protection while we sleep).
 /// Resume  → caller re-arms so curve writes are forced again even if the EC reset pwm_enable.
 /// Absent/broken D-Bus (containers, CI) is a silent no-op.
@@ -26,11 +26,11 @@ public sealed class LogindMonitor : IDisposable
             await connection.ConnectAsync();
 
             _subscription = await connection.AddMatchAsync<bool>(
-                // No Sender filter: interface+member is logind-exclusive, and it lets
-                // `busctl emit` exercise this path in tests (synthetic sender).
                 new MatchRule
                 {
                     Type = MessageType.Signal,
+                    Sender = "org.freedesktop.login1",
+                    Path = "/org/freedesktop/login1",
                     Interface = "org.freedesktop.login1.Manager",
                     Member = "PrepareForSleep",
                 },

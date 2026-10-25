@@ -19,6 +19,16 @@ Threadripper 9970X + RTX 5060 Ti / 2× RTX PRO 6000 Blackwell (driver 615.x).
   Threadripper PRO); temperature, load and frequency work from plain hwmon/cpufreq even without it.
 - NVIDIA GPU features need the proprietary driver with NVML (`nvidia-smi` working).
 
+## Installed application
+
+Download the amd64 Debian installer and checksum from [GitHub Releases](https://github.com/russellmm/openfan-linux/releases).
+The first packaged release is **v0.4.1**, tested on Ubuntu 26.10.
+
+Build a self-contained Ubuntu/Debian package with `bash packaging/build-deb.sh "$HOME/Downloads/OpenFan"`.
+It installs the app under `/opt/openfan/app`, the launcher as `/usr/bin/openfan`, and the privileged
+helper under `/usr/lib/openfan`. Profiles remain in the user's existing configuration.
+See [installation, upgrades and launcher migration](docs/installation.md).
+
 ## Features
 
 - **CPU page** — live package temp, socket power draw, PPT cap, TDP, TjMax, load % and boost frequency for the

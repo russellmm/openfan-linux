@@ -1,18 +1,19 @@
 # OpenFan Linux — Project Status & Handover
 
-**Last updated:** 2026-10-21 · **State: verified calibration build running; all pending source, tests and documentation included in this publication to `origin/main`.**
+**Last updated:** 2026-10-24 · **State: managed Debian package installed on the internal Linux NVMe; all packaging/autostart updates included in the v0.4.1 release source.**
 Branch `main` → github.com/russellmm/openfan-linux. Spec / design: [`openfan-ubuntu.md`](openfan-ubuntu.md). Hardware findings journal: [`spike-notes.md`](spike-notes.md). Manual install chain (udev, modules-load, helper service): [`packaging/README.md`](packaging/README.md). CPU power CLI + boot persistence: [`tools/hsmp-control/README.md`](tools/hsmp-control/README.md).
 NOTE: history was rewritten once before the first push to scrub a sudo password from old STATUS revisions. Keep credentials out of these docs — that includes paths to local password/token files.
 
 ## Current handoff and deployment
 
-Start with [October 21 handoff](HANDOVER-2026-10-21.md); [October 19 handoff](HANDOVER-2026-10-19.md)
+Start with [October 24 installation handoff](HANDOVER-2026-10-24.md); [October 21 handoff](HANDOVER-2026-10-21.md) and [October 19 handoff](HANDOVER-2026-10-19.md)
 and [October 18 history](HANDOVER-2026-10-18.md) cover the earlier sensor and CPU work.
 Work in `/mnt/SOLIDIGM/ChatGPT/openfan-linux`.
 
-- Current app: `publish/calibration-app-final/openfan`, selected by menu/autostart/terminal launchers.
-  Preserve that local build directory while those launchers depend on it. The installed helper is
-  `/usr/local/lib/openfan/openfan-helper`, active and matching the verified fan-stop helper build.
+- Current package: `openfan 0.4.0+20261024.git25475fa`. App: `/opt/openfan/app/openfan`;
+  helper: `/usr/lib/openfan/openfan-helper`, managed by the packaged systemd unit. Existing RTX
+  routing is preserved, with the registered app targeting the installed executable. Source/build
+  directories on the USB drive are no longer runtime dependencies. [Installation guide](docs/installation.md).
 - **281 tests pass**; Release app/helper builds and headless UI checks are recorded in the handoff.
   Latest calibration GUI tests used real read-only RPM with simulated actuator writes; earlier
   fan-stop tests exercised the actual 5060 Ti and verified automatic/manual policy transitions.
@@ -28,8 +29,9 @@ Work in `/mnt/SOLIDIGM/ChatGPT/openfan-linux`.
   [DRAM setup](DRAM-TEMPS-README.md), [motherboard research](docs/motherboard-sensor-map.md).
 - CPU **frequency-cap reboot persistence remains planned**, distinct from existing PPT power-limit
   persistence. [Frequency persistence plan](docs/cpu-frequency-persistence-plan.md).
-- Active user profile: `/home/russellm/Documents/openfan2.json`. Deployment preserved it, its
-  calibration tables and 151 captured CPU/PWM/DRAM settings. Generated builds, local profiles,
+- Active user profile: `/home/russellm/Documents/openfanOct23.json`. Package deployment preserved
+  the full JSON and 343 captured CPU/PWM/DRAM settings. Start minimized is still enabled.
+  Generated builds, local profiles,
   backups, traces and reference images remain ignored rather than being published.
 
 ## Historical notes — September 24, 2026

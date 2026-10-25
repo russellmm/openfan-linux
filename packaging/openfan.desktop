@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=OpenFan
+Comment=Fan control and hardware monitoring
+Exec=/usr/bin/openfan
+TryExec=/usr/bin/openfan
+Terminal=false
+Icon=openfan
+StartupWMClass=openfan
+Categories=System;Monitor;
+Keywords=fan;cooling;thermal;cpu;gpu;

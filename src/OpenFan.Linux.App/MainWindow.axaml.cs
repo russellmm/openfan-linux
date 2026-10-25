@@ -1008,11 +1008,21 @@ public sealed partial class MainWindow : Window
                 return;
             }
             Directory.CreateDirectory(Path.GetDirectoryName(AutostartFilePath)!);
-            // BaseDirectory always holds the apphost, even when launched as `dotnet openfan.dll`.
+            // Preserve the user's menu launcher, including an RTX GPU routing wrapper.
+            // Fall back to this apphost for portable/development copies without an entry.
             var exe = Path.Combine(AppContext.BaseDirectory, "openfan");
+            var exec = $"\"{exe}\"";
+            var menu = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".local", "share", "applications", "openfan.desktop");
+            if (!File.Exists(menu)) menu = "/usr/share/applications/openfan.desktop";
+            if (File.Exists(menu))
+            {
+                var configured = File.ReadLines(menu).FirstOrDefault(line => line.StartsWith("Exec=", StringComparison.Ordinal));
+                if (configured is { Length: > 5 }) exec = configured[5..];
+            }
             File.WriteAllText(AutostartFilePath,
                 "[Desktop Entry]\nType=Application\nName=OpenFan\nComment=hwmon + NVML fan control\n" +
-                $"Exec=\"{exe}\"\nTerminal=false\nIcon=openfan\nStartupWMClass=openfan\nX-GNOME-Autostart-enabled=true\n");
+                $"Exec={exec}\nTerminal=false\nIcon=openfan\nStartupWMClass=openfan\nX-GNOME-Autostart-enabled=true\n");
         }
         catch { /* settings checkbox state still reflects intent; file ops are best-effort */ }
     }

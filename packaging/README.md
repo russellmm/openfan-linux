@@ -1,5 +1,12 @@
 # OpenFan Linux — one-time privileged setup (prototype)
 
+For the installed desktop app and managed helper, use
+[the Debian package](../docs/installation.md), built by `build-deb.sh`. Its app lives under
+`/opt/openfan/app`, its stable launcher is `/usr/bin/openfan`, and its helper/unit live under
+`/usr/lib/openfan` and `/usr/lib/systemd/system`. The older manual helper-install commands below
+are retained for development setups; do not run them over an installed package. Board PWM ACLs,
+module loading and optional DRAM/PPT services remain separate hardware-specific setup.
+
 Everything here runs once with sudo; the OpenFan app itself never runs as root
 (spec §3.4/§8). After this, `openfan-linux` writes PWM as a member of `openfan`.
 

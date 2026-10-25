@@ -1,0 +1,14 @@
+#!/bin/sh
+# Installed app only; development binaries require an explicit override.
+set -eu
+chosen=${OPENFAN_BIN:-/opt/openfan/app/openfan}
+if [ "${1:-}" = --launcher-path ]; then
+    printf '%s\n' "$chosen"
+    exit 0
+fi
+if [ ! -x "$chosen" ]; then
+    printf 'OpenFan executable is missing: %s\n' "$chosen" >&2
+    exit 1
+fi
+cd "${HOME:-/}"
+exec "$chosen" "$@"

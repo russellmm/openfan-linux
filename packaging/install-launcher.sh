@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# DEVELOPMENT ONLY. Installed-package launchers use /usr/bin/openfan instead.
 # Creates a rebuild-proof launcher for openfan:
 #   ~/.local/bin/openfan          wrapper that finds the newest built apphost
 #   menu entry + optional desktop icon, both Exec= that wrapper
