@@ -1,6 +1,6 @@
 # OpenFan Linux — Project Status & Handover
 
-**Last updated:** 2026-10-24 · **State: managed Debian package installed on the internal Linux NVMe; all packaging/autostart updates included in the v0.4.1 release source.**
+**Last updated:** 2026-10-24 · **State: v0.4.1 published on GitHub and installed on the internal Linux NVMe.**
 Branch `main` → github.com/russellmm/openfan-linux. Spec / design: [`openfan-ubuntu.md`](openfan-ubuntu.md). Hardware findings journal: [`spike-notes.md`](spike-notes.md). Manual install chain (udev, modules-load, helper service): [`packaging/README.md`](packaging/README.md). CPU power CLI + boot persistence: [`tools/hsmp-control/README.md`](tools/hsmp-control/README.md).
 NOTE: history was rewritten once before the first push to scrub a sudo password from old STATUS revisions. Keep credentials out of these docs — that includes paths to local password/token files.
 
@@ -10,10 +10,13 @@ Start with [October 24 installation handoff](HANDOVER-2026-10-24.md); [October 2
 and [October 18 history](HANDOVER-2026-10-18.md) cover the earlier sensor and CPU work.
 Work in `/mnt/SOLIDIGM/ChatGPT/openfan-linux`.
 
-- Current package: `openfan 0.4.0+20261024.git25475fa`. App: `/opt/openfan/app/openfan`;
+- Current package: `openfan 0.4.1`, built from clean commit `29bae8e`. App: `/opt/openfan/app/openfan`;
   helper: `/usr/lib/openfan/openfan-helper`, managed by the packaged systemd unit. Existing RTX
   routing is preserved, with the registered app targeting the installed executable. Source/build
   directories on the USB drive are no longer runtime dependencies. [Installation guide](docs/installation.md).
+- [GitHub release v0.4.1](https://github.com/russellmm/openfan-linux/releases/tag/v0.4.1)
+  includes the amd64 Debian installer, SHA256SUMS and tagged source archives. The tag stays on
+  the exact package source commit; subsequent deployment documentation lives on main.
 - **281 tests pass**; Release app/helper builds and headless UI checks are recorded in the handoff.
   Latest calibration GUI tests used real read-only RPM with simulated actuator writes; earlier
   fan-stop tests exercised the actual 5060 Ti and verified automatic/manual policy transitions.
