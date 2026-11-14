@@ -23,8 +23,8 @@ Threadripper PRO 9975WX / WRX90E-SAGE SE and RTX 5060 Ti / 2× RTX PRO 6000 Blac
 ## Installed application
 
 Download the amd64 Debian installer and checksum from [GitHub Releases](https://github.com/russellmm/openfan-linux/releases).
-The current version is **v0.4.5**, tested on Ubuntu 26.10. See the
-[v0.4.5 release notes](docs/releases/v0.4.5.md) for sensor selection in curve menus.
+The current version is **v0.4.6**, tested on Ubuntu 26.10. See the
+[v0.4.6 release notes](docs/releases/v0.4.6.md) for all eight DIMM temperatures and the dedicated BMC sensor group.
 
 Build a self-contained Ubuntu/Debian package with `bash packaging/build-deb.sh "$HOME/Downloads/OpenFan"`.
 It installs the app under `/opt/openfan/app`, the launcher as `/usr/bin/openfan`, and the privileged
@@ -70,11 +70,13 @@ See [installation, upgrades and launcher migration](docs/installation.md).
 - **Sensors page** — compact Current / Min / Max / Average / Unit tables for temperatures, fan RPM/duty,
   voltages, current, power/energy and humidity where available, NVIDIA load/clocks/VRAM, and memory ECC
   counters. Bound DDR5 SPD5118 hubs appear together under **Memory temperatures**, with stable
-  controller/address identities for names, curves and overlay tiles. Configured low/high/critical
+  controller/address identities for names, curves and overlay tiles. All eight WRX90 DIMMs are
+  now bound by the updated machine-specific startup setup. A dedicated **BMC** group includes
+  slot-labeled A1–H1 temperatures and BMC fan telemetry, kept separate from direct SPD readings. Configured low/high/critical
   temperature limits appear beneath each memory row, separate from measured Min/Max. Status/alarm flags are optional.
   Statistics share one hardware sample and continue while other
   tabs are visible. **Sensor groups** lets you hide categories such as Memory (ECC). Hidden or collapsed
-  groups pause optional hardware reads; active fan curves, the overlay and visible pages keep required
+  groups pause optional hardware reads (cached BMC snapshots continue for the control lease); active fan curves, the overlay and visible pages keep required
   readings. Visibility and collapse choices persist in the profile. Names become edit boxes only when
   clicked; table painting pauses during editing, while sampling/fan control continue. NVMe/GPU headings
   include PCI identity, and names retain hardware details in tooltips. Regular read-only polling shares one background batch; NVMe SMART uses an independent batch. Discovery runs every five

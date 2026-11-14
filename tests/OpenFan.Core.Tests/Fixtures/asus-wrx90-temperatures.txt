@@ -1,0 +1,22 @@
+CPU Package Temp | 01h | ok  |  3.0 | 39 degrees C
+TR1 Temperature  | 02h | ns  |  7.0 | No Reading
+LAN Temp         | 03h | ok  |  3.0 | 63 degrees C
+DIMMA1_Temp      | 04h | ok  |  8.0 | 44 degrees C
+DIMMB1_Temp      | 05h | ok  |  8.0 | 46 degrees C
+DIMMC1_Temp      | 06h | ok  |  8.0 | 45 degrees C
+DIMMD1_Temp      | 07h | ok  |  8.0 | 41 degrees C
+DIMME1_Temp      | 08h | ok  |  8.0 | 41 degrees C
+DIMMF1_Temp      | 09h | ok  |  8.0 | 43 degrees C
+DIMMG1_Temp      | 0Ah | ok  |  8.0 | 42 degrees C
+DIMMH1_Temp      | 0Bh | ok  |  8.0 | 40 degrees C
+PCIE01 Temp      | 0Ch | ok  | 11.0 | 33 degrees C
+PCIE02 Temp      | 0Dh | ns  | 11.0 | No Reading
+PCIE03 Temp      | 0Eh | ns  | 11.0 | No Reading
+PCIE04 Temp      | 0Fh | ok  | 11.0 | 46 degrees C
+PCIE05 Temp      | 10h | ok  | 11.0 | 31 degrees C
+PCIE06 Temp      | 11h | ns  | 11.0 | No Reading
+PCIE07 Temp      | 12h | ns  | 11.0 | No Reading
+PSU1 Temp        | CCh | ns  | 10.0 | No Reading
+PSU2 Temp        | CDh | ns  | 10.0 | No Reading
+PSU1 Over Temp   | E0h | ns  | 10.0 | No Reading
+PSU2 Over Temp   | E5h | ns  | 10.0 | No Reading

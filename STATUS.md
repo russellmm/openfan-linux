@@ -1,8 +1,29 @@
 # OpenFan Linux — Project Status & Handover
 
-**Last updated:** 2026-11-14 · **State: v0.4.5 installed and verified; per-sensor curve source selection complete.**
+**Last updated:** 2026-11-14 · **State: v0.4.6 implemented; eight direct DIMMs restored, BMC telemetry/group validated; deployment in progress.**
 Branch `main` → github.com/russellmm/openfan-linux. Spec / design: [`openfan-ubuntu.md`](openfan-ubuntu.md). Hardware findings journal: [`spike-notes.md`](spike-notes.md). Manual install chain (udev, modules-load, helper service): [`packaging/README.md`](packaging/README.md). CPU power CLI + boot persistence: [`tools/hsmp-control/README.md`](tools/hsmp-control/README.md).
 NOTE: history was rewritten once before the first push to scrub a sudo password from old STATUS revisions. Keep credentials out of these docs — that includes paths to local password/token files.
+
+## Version 0.4.6: eight DIMMs and BMC sensor group
+
+- Current machine has eight populated DDR5 slots. Old startup binding checked only 0x50/52,
+  missing responding SPD5118 hubs at 0x51/53 on both memory controllers. Kernel validated
+  and bound those four hubs; all eight direct temperatures are readable. Existing first-four
+  identities and settings remain. Updated installed boot script recognizes the board, restricts
+  WRX90 probes to AMDI0010:01/:02 and 0x50–53, skips bound clients, and retains TRX50 addresses.
+  Existing enabled startup service restarted successfully, leaving eight devices.
+- BMC reported all eight DIMM slots already; previous backend exposed fan zones only and
+  classified them as Other. Added BMC group and read-only standard SDR temperature/extra-fan
+  records to the existing helper snapshot/shared inventory. 45 rows: 22 temperatures, 16
+  RPM records and seven duty targets. Unavailable readings stay missing; threshold alarms
+  retain finite numbers. Direct SPD and BMC values differ and are intentionally independent.
+- Existing fan/tach IDs and write/restore behavior are retained. New SDR IDs use sensor
+  numbers; BMC temperatures participate in opt-in curve menus. Selective publication respects
+  group demand while snapshots keep leases alive. Fixed canonical BMC tach demand for hidden
+  groups/calibration. Temperature reads cache five seconds; fan reads two seconds.
+- **347 tests pass** with all eight BMC slots delivered through the helper, alarm/missing
+  parsing, grouping and retained curve selection. Hardware checks and source fixtures in
+  ignored `publish/release-v0.4.6/`; temperature fixture contains no credentials or serials.
 
 ## Version 0.4.5: choose curve sources on Sensors
 

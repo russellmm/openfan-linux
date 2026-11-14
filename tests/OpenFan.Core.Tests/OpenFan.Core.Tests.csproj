@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <None Update="Fixtures/asus-wrx90-bmc.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Fixtures/asus-wrx90-temperatures.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

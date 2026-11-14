@@ -6,7 +6,7 @@ using OpenFan.Core.Hardware;
 namespace OpenFan.Linux.Hw;
 
 public sealed record BmcFanChannel(int Index, string Name, int MinPercent, double? TargetPercent, double? Rpm);
-public sealed record BmcFanSnapshot(bool Available, string? Error, BmcFanChannel[] Channels);
+public sealed record BmcFanSnapshot(bool Available, string? Error, BmcFanChannel[] Channels, BmcSensorChannel[]? Sensors = null);
 
 /// <summary>
 /// Root-side ASUS WRX90 BMC fan driver over the existing kernel IPMI interface.
@@ -30,6 +30,11 @@ public sealed class AsusBmcController : IDisposable
     private readonly Dictionary<int, int> _targets = [];
     private readonly Dictionary<string, double?> _rpms = [];
     private DateTimeOffset _lastRpmRead;
+    private DateTimeOffset _lastTemperatureRead;
+    private BmcSensorChannel[] _fanSensors = [];
+    private BmcSensorChannel[] _temperatureSensors = [];
+    private string? _fanReadError;
+    private string? _temperatureReadError;
     private readonly Timer? _watchdog;
     private FileStream? _lockFile;
     private bool _disposed;
@@ -241,22 +246,38 @@ public sealed class AsusBmcController : IDisposable
                 _rpms.Clear();
                 var result = Run("sdr", "type", "Fan");
                 if (result.Success)
-                    foreach (var line in result.Output.Split('\n'))
-                    {
-                        var cells = line.Split('|', StringSplitOptions.TrimEntries);
-                        // Threshold alarms (for example lcr) describe fan speed, not reading validity.
-                        // Unavailable/disabled sensors must still remain missing.
-                        if (cells.Length == 5 && cells[2] is "ok" or "nc" or "cr" or "nr" or "lnc" or "lcr" or "lnr" or "unc" or "ucr" or "unr" &&
-                            cells[4].EndsWith(" RPM", StringComparison.Ordinal) &&
-                            double.TryParse(cells[4][..^4], NumberStyles.Float, CultureInfo.InvariantCulture, out var rpm) && double.IsFinite(rpm) && rpm >= 0)
-                            _rpms[cells[0]] = rpm;
-                    }
-                else LastError = "BMC fan RPM read failed: " + result.Error;
+                {
+                    _fanSensors = BmcSdrSensors.Parse(result.Output, HardwareKind.Tach);
+                    _fanReadError = null;
+                    foreach (var sensor in _fanSensors) _rpms[sensor.Name] = sensor.Value;
+                }
+                else
+                {
+                    _fanSensors = _fanSensors.Select(s => s with { Value = null }).ToArray();
+                    _fanReadError = "BMC fan RPM read failed: " + result.Error;
+                }
                 _lastRpmRead = DateTimeOffset.UtcNow;
             }
-            return new(true, LastError, Enumerable.Range(0, 7).Select(index => new BmcFanChannel(index, SensorNames[index],
+            if (DateTimeOffset.UtcNow - _lastTemperatureRead >= TimeSpan.FromSeconds(5))
+            {
+                var result = Run("sdr", "type", "Temperature");
+                if (result.Success)
+                {
+                    _temperatureSensors = BmcSdrSensors.Parse(result.Output, HardwareKind.Temperature);
+                    _temperatureReadError = null;
+                }
+                else
+                {
+                    _temperatureSensors = _temperatureSensors.Select(s => s with { Value = null }).ToArray();
+                    _temperatureReadError = "BMC temperature read failed: " + result.Error;
+                }
+                _lastTemperatureRead = DateTimeOffset.UtcNow;
+            }
+            // Existing tach ids remain stable; extra SDR fans use their sensor-number identity.
+            var extraFans = _fanSensors.Where(s => !SensorNames.Contains(s.Name, StringComparer.Ordinal));
+            return new(true, LastError ?? _fanReadError ?? _temperatureReadError, Enumerable.Range(0, 7).Select(index => new BmcFanChannel(index, SensorNames[index],
                 0, _targets.TryGetValue(index, out var target) ? target : null,
-                _rpms.GetValueOrDefault(SensorNames[index]))).ToArray());
+                _rpms.GetValueOrDefault(SensorNames[index]))).ToArray(), [.. _temperatureSensors, .. extraFans]);
         }
     }
 

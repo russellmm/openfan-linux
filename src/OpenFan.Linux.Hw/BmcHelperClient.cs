@@ -40,23 +40,35 @@ public sealed class BmcHelperClient(string? socketPath = null) : ISensorBackend,
             return _snapshot.Channels.SelectMany(channel => new[]
             {
                 new HardwareItem { Id = AsusBmcController.IdPrefix + channel.Index, Name = channel.Index == 0 ? "CPU_FAN / CPU_OPT (BMC)" : channel.Name + " (BMC)",
-                    Kind = HardwareKind.Control, Backend = Name, Group = "ASUS BMC fans", MinPercent = channel.MinPercent,
+                    Kind = HardwareKind.Control, Backend = Name, Group = "ASUS BMC", MinPercent = channel.MinPercent, Unit = "%",
                     CanSet = Available, Source = "Local IPMI", Details = "Manual PWM target, 0–100%. Original firmware curve restored on release. CPU_FAN and CPU_OPT share a zone." },
                 new HardwareItem { Id = "bmc:asus-wrx90:tach:" + channel.Index, Name = channel.Name,
-                    Kind = HardwareKind.Tach, Backend = Name, Group = "ASUS BMC fans", CanSet = false, Unit = "RPM", Source = "BMC SDR" },
-            }).ToArray();
+                    Kind = HardwareKind.Tach, Backend = Name, Group = "ASUS BMC", CanSet = false, Unit = "RPM", Source = "BMC SDR" },
+            }).Concat((_snapshot.Sensors ?? []).Select(sensor => new HardwareItem
+            {
+                Id = sensor.Id, Name = sensor.Name, Kind = sensor.Kind, Unit = sensor.Unit,
+                Backend = Name, Group = "ASUS BMC", CanSet = false, Source = "BMC SDR",
+                Details = "Read-only local IPMI SDR measurement. BMC values are independent of direct hwmon readings.",
+            })).ToArray();
         }
     }
 
-    public void ReadInto(IDictionary<string, double?> readings)
+    public void ReadInto(IDictionary<string, double?> readings) => ReadInto(readings, null);
+
+    public void ReadInto(IDictionary<string, double?> readings, IReadOnlySet<string>? requested)
     {
         lock (_gate)
         {
             if (Available || DateTimeOffset.UtcNow - _lastProbe > TimeSpan.FromSeconds(5)) Refresh();
             foreach (var channel in _snapshot.Channels)
             {
-                readings[AsusBmcController.IdPrefix + channel.Index] = Available ? channel.TargetPercent : null;
-                readings["bmc:asus-wrx90:tach:" + channel.Index] = Available ? channel.Rpm : null;
+                Put(AsusBmcController.IdPrefix + channel.Index, channel.TargetPercent);
+                Put("bmc:asus-wrx90:tach:" + channel.Index, channel.Rpm);
+            }
+            foreach (var sensor in _snapshot.Sensors ?? []) Put(sensor.Id, sensor.Value);
+            void Put(string id, double? value)
+            {
+                if (requested is null || requested.Contains(id)) readings[id] = Available ? value : null;
             }
         }
     }
@@ -72,7 +84,11 @@ public sealed class BmcHelperClient(string? socketPath = null) : ISensorBackend,
             var snapshot = JsonSerializer.Deserialize<BmcFanSnapshot>(Convert.FromBase64String(response[3..]));
             if (snapshot is null || snapshot.Channels is null || snapshot.Channels.Length > 7 ||
                 snapshot.Channels.Select(c => c.Index).Distinct().Count() != snapshot.Channels.Length ||
-                snapshot.Channels.Any(c => c.Index is < 0 or > 6 || c.MinPercent is < 0 or > 100))
+                snapshot.Channels.Any(c => c.Index is < 0 or > 6 || c.MinPercent is < 0 or > 100) ||
+                snapshot.Sensors is { } sensors && (sensors.Length > 256 || sensors.Select(s => s.Id).Distinct().Count() != sensors.Length ||
+                    sensors.Any(s => !System.Text.RegularExpressions.Regex.IsMatch(s.Id, @"^bmc:asus-wrx90:sdr:[0-9a-f]{2}$") ||
+                        s.Kind is not (HardwareKind.Temperature or HardwareKind.Tach) ||
+                        s.Unit != (s.Kind == HardwareKind.Temperature ? "°C" : "RPM"))))
                 throw new JsonException("Invalid BMC snapshot.");
             _snapshot = snapshot;
             if (_activeTargets.Any(p => snapshot.Channels.FirstOrDefault(c => c.Index == p.Key)?.TargetPercent != p.Value))
@@ -116,7 +132,7 @@ public sealed class BmcHelperClient(string? socketPath = null) : ISensorBackend,
                 if (_socket is null)
                 {
                     _socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified)
-                        { SendTimeout = 2000, ReceiveTimeout = 10000 };
+                        { SendTimeout = 2000, ReceiveTimeout = 12000 };
                     _socket.Connect(new UnixDomainSocketEndPoint(_socketPath));
                     _stream = new NetworkStream(_socket, ownsSocket: false);
                 }

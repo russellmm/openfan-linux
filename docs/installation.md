@@ -9,11 +9,11 @@ setup remain separate; see [packaging setup](../packaging/README.md).
 ## Build and install
 
 For a ready-built installer, use [GitHub Releases](https://github.com/russellmm/openfan-linux/releases).
-Download `openfan_0.4.5_amd64.deb` and `SHA256SUMS` into the same directory, then verify and install:
+Download `openfan_0.4.6_amd64.deb` and `SHA256SUMS` into the same directory, then verify and install:
 
 ```sh
 sha256sum -c SHA256SUMS
-sudo apt install ./openfan_0.4.5_amd64.deb
+sudo apt install ./openfan_0.4.6_amd64.deb
 sudo usermod -aG openfan "$USER"
 ```
 
@@ -30,6 +30,10 @@ the original curve rather than substituting a nonzero duty or recording a failed
 Version 0.4.5 adds unchecked **Use in curves** checkboxes on Sensors to select temperature
 sources for both curve menus. Existing assignments keep working even while unlisted;
 see [choosing curve sensors](curve-sensors.md).
+Version 0.4.6 adds the BMC sensor category with all eight BMC DIMM slots. Update both app
+and helper for the extended snapshot. The eight direct SPD5118 temperatures require the
+updated machine-specific [startup binding setup](../packaging/dram-temps/README.md), which
+is already installed on the development machine and remains separate from this package.
 Install the app and helper together using the package. This backend also requires `ipmitool`
 (a recommended package dependency) and an available local IPMI device. Fan writes stay in the
 root helper; the desktop app uses the existing `openfan` group. Existing profiles are preserved;

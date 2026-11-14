@@ -20,6 +20,7 @@ public sealed class BmcTests : IDisposable
         public readonly Dictionary<int, byte[]> States;
         public readonly List<string[]> Writes = [];
         public string? FanReadings;
+        public bool FailTemperatures;
         public bool FailWrite;
         public bool RejectZero;
         public bool FailReadbackOnce;
@@ -29,6 +30,9 @@ public sealed class BmcTests : IDisposable
             .ToDictionary(c => int.Parse(c.Arguments[5][2..], NumberStyles.HexNumber), c => AsusBmcController.ParseHex(c.Output));
         public BmcCommandResult Run(string[] args)
         {
+            if (args.SequenceEqual(new[] { "-I", "open", "sdr", "type", "Temperature" }))
+                return FailTemperatures ? new(args, 1, "", "temperature unavailable") : new(args, 0,
+                    File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "asus-wrx90-temperatures.txt")), "");
             if (FanReadings is not null && args.SequenceEqual(new[] { "-I", "open", "sdr", "type", "Fan" }))
                 return new(args, 0, FanReadings, "");
             if (args.Length >= 5 && args[2..5].SequenceEqual(new[] { "raw", "0x30", "0x0e" }))
@@ -285,7 +289,9 @@ public sealed class BmcTests : IDisposable
         using (var client = new BmcHelperClient(server.SocketPath))
         {
             var items = client.Discover();
-            items.Should().HaveCount(14);
+            items.Should().HaveCount(45);
+            items.Should().OnlyContain(i => OpenFan.Core.Hardware.SensorPollingPlan.Group(i) == "BMC");
+            items.Count(i => i.Kind == OpenFan.Core.Hardware.HardwareKind.Temperature).Should().Be(22);
             items.Where(i => i.Kind == OpenFan.Core.Hardware.HardwareKind.Control).Should().OnlyContain(i => i.MinPercent == 0);
             client.SetPercent(Id(1), 0).Should().BeTrue(client.LastError);
             var readings = new Dictionary<string, double?>(); client.ReadInto(readings);
@@ -298,6 +304,55 @@ public sealed class BmcTests : IDisposable
         }
         await server.DisposeAsync();
         fw.States[1].Should().Equal(before);
+    }
+
+    [Fact]
+    public async Task AllEightSlotTemperaturesReachSharedInventoryAndCurveSelectionWithoutFanWrites()
+    {
+        var fw = new Firmware(); using var driver = Controller(fw);
+        await using var server = new HelperServer(new NoFans(), Path.Combine(_root, "helper.sock"), bmc: driver);
+        server.Start();
+        using var client = new BmcHelperClient(server.SocketPath);
+        var inventory = client.Discover();
+        var dimms = inventory.Where(i => System.Text.RegularExpressions.Regex.IsMatch(i.Name, "^DIMM[A-H]1_Temp$")).ToArray();
+        dimms.Should().HaveCount(8);
+        dimms.Select(i => i.Id).Distinct().Should().HaveCount(8);
+        dimms.Should().OnlyContain(i => i.Kind == OpenFan.Core.Hardware.HardwareKind.Temperature && !i.CanSet && i.Unit == "°C");
+        var readings = new Dictionary<string, double?>(); client.ReadInto(readings);
+        foreach (var dimm in dimms) readings[dimm.Id].Should().BeInRange(20, 90);
+        readings["bmc:asus-wrx90:sdr:02"].Should().BeNull("No Reading stays missing");
+        readings["bmc:asus-wrx90:sdr:52"].Should().Be(0, "a numeric stopped-fan reading is valid");
+        var settings = new OpenFan.Core.Config.AppSettings { CurveSensorIds = [dimms[0].Id] };
+        OpenFan.Core.Hardware.CurveSensorSelection.Available(inventory, settings).Should().Equal(dimms[0]);
+        fw.Writes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void TemperatureFailureDoesNotDisableFanControlOrFabricateValues()
+    {
+        var fw = new Firmware { FailTemperatures = true }; using var driver = Controller(fw);
+        var snapshot = driver.Snapshot(Guid.NewGuid());
+        snapshot.Available.Should().BeTrue();
+        snapshot.Error.Should().Contain("temperature read failed");
+        snapshot.Channels.Single(c => c.Index == 1).Rpm.Should().Be(2040);
+        snapshot.Sensors.Should().NotContain(s => s.Kind == OpenFan.Core.Hardware.HardwareKind.Temperature);
+        fw.Writes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task HiddenBmcReadingsStayNullButSnapshotsRenewOwnedFanLease()
+    {
+        var fw = new Firmware(); using var driver = Controller(fw);
+        await using var server = new HelperServer(new NoFans(), Path.Combine(_root, "helper.sock"), bmc: driver);
+        server.Start();
+        using var client = new BmcHelperClient(server.SocketPath);
+        client.Discover(); client.SetPercent(Id(1), 50).Should().BeTrue();
+        var readings = new Dictionary<string, double?> { [Id(1)] = null };
+        client.ReadInto(readings, new HashSet<string>());
+        readings.Should().ContainSingle(); readings[Id(1)].Should().BeNull();
+        driver.Snapshot(Guid.NewGuid()).Channels.Single(c => c.Index == 1).TargetPercent.Should().Be(50);
+        client.TakeReapplyRequest().Should().BeFalse();
+        client.SetDefault(Id(1)).Should().BeTrue();
     }
 
     [Fact]

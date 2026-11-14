@@ -344,7 +344,7 @@ public sealed class FanApp : IDisposable
         // Nulls preserve history for paused channels without retaining stale current readings.
         var readings = _inventory.ToDictionary(i => i.Id, _ => (double?)null, StringComparer.OrdinalIgnoreCase);
         Hwmon.ReadInto(readings, requested);
-        Bmc.ReadInto(readings); // also renews the session's fan-control lease
+        Bmc.ReadInto(readings, requested); // always renews the lease, even with hidden BMC readings
         if (_usingLibSensors) LibSensors.ReadInto(readings, requested);
         if (_usingNvml) Nvml.ReadInto(readings, requested);
         _edac.ReadInto(readings, requested);

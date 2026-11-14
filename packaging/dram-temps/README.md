@@ -1,39 +1,38 @@
-# Working TRX50 DDR5 sensor setup
+# DDR5 sensor startup setup
 
-These two files are copied unchanged from `/mnt/SOLIDIGM/Claude/dramtemps`, the working
-October 18 setup for this ASUS Pro WS TRX50-SAGE WIFI A. Updated setup notes are in the
-project root as `DRAM-TEMPS-README.md`; the original notes remain in the source directory.
-The earlier `dram-temps.sh` SMBus search
-script is intentionally not included: that was not the successful route.
+On the current ASUS **Pro WS WRX90E-SAGE SE**, eight SPD5118 sensors are verified at
+0x50, 0x51, 0x52 and 0x53 on each of the two memory controllers AMDI0010:01/:02.
+The old TRX50-era script checked only 0x50 and 0x52 and therefore exposed four modules.
+The November 14 update adds the four verified missing hubs. All eight direct temperatures
+are now available to libsensors and OpenFan's Memory temperatures group.
 
-`dram-temps-bind.sh` loads the kernel's `spd5118` driver and binds responding addresses
-0x50 and 0x52 on adapters named `Synopsys DesignWare I2C adapter`. This is a **machine-specific
-startup setup**, not a general-purpose sensor discovery script. It needs root, `i2cget`
-from i2c-tools, and a kernel with spd5118. Inspect the hardware before using it elsewhere.
-The script exits successfully even if no hubs answer; verify hwmon readings after boot.
+`dram-temps-bind.sh` recognizes the board before probing. WRX90 uses only the two verified
+controller paths and four known addresses; the known TRX50 board retains 0x50/0x52 on
+DesignWare adapters. Other boards are refused. Existing clients are skipped; responding
+unbound addresses are handed to the kernel's spd5118 driver for chip validation.
+It does not scan unrelated adapters, access SPD EEPROM contents, or write alarm thresholds.
 
-On the development machine these files are already installed as
-`/usr/local/sbin/dram-temps-bind.sh` and `/etc/systemd/system/dram-temps.service`, with
-the service enabled. The service ran successfully on the October 19 boot and four
-SPD5118 temperature devices are currently readable. No reinstallation is needed.
+This remains **machine-specific setup**, independent of the Debian app installer.
+It needs root, i2c-tools and a kernel with spd5118. The updated script is already installed
+at `/usr/local/sbin/dram-temps-bind.sh`, with the enabled
+`/etc/systemd/system/dram-temps.service`. Restarting the service is verified and idempotent.
+The app itself performs no bus scans or privileged device binding.
 
-OpenFan does not run these scripts, scan buses, read SPD EEPROM contents, or bind devices.
-It discovers the existing kernel devices through libsensors and reads their temperatures
-without privilege. The normal sysfs fallback also supports them. Startup device binding
-and OpenFan's saved display preferences are independent.
+For an intentional setup/update on these verified boards:
 
-In **Sensors → Memory temperatures**, four rows show the SPD hub measurements with current,
-minimum, maximum and average values. Controller/address labels distinguish modules without
-claiming physical slot letters. Tooltips show the controller path and current I2C address.
-Each row also displays the configured low/high/critical-low/critical-high alarm limits.
-These are read-only threshold readbacks, separate from the observed minimum and maximum;
-they are not offered as live temperature sources for curves or overlay tiles.
-User names, curves and overlay tiles use a controller/address identity
-that survives changes in hwmon and I2C adapter numbering. Existing numeric ids on other
-sensor types are unchanged. Older saved SPD5118 numeric references should be reselected
-once; this machine had none before this update.
+```sh
+sudo install -m 755 packaging/dram-temps/dram-temps-bind.sh /usr/local/sbin/dram-temps-bind.sh
+sudo install -m 644 packaging/dram-temps/dram-temps.service /etc/systemd/system/dram-temps.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now dram-temps.service
+sudo systemctl restart dram-temps.service
+```
 
-Group hide and collapse choices save immediately in the active OpenFan profile and restore
-on the next launch. Optional reads stop while hidden/collapsed. Sensors needed by enabled
-fan curves, the overlay or a visible dependent page still update. Expand/show the group
-to resume its ordinary polling. Statistics start again at each app launch.
+Verify hwmon measurements after startup; missing/unsupported hardware must not be inferred
+from the service status alone. Existing direct sensor identities and selections are retained;
+new rows default unchecked for Use in curves. Configured alarm limits remain separate from
+observed Min/Max, and slot letters for direct SPD readings are still unmapped.
+
+See [current and historical hardware notes](../../DRAM-TEMPS-README.md) and
+[BMC telemetry](../../docs/wrx90-bmc-fans.md). The original October setup came from
+`/mnt/SOLIDIGM/Claude/dramtemps`; its broad search script is not used by OpenFan.

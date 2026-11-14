@@ -6,12 +6,13 @@ namespace OpenFan.Core.Hardware;
 public static class SensorPollingPlan
 {
     public static readonly string[] GroupOrder =
-        ["CPU", "GPU", "Motherboard", "Chipset / ASUS EC", "AMD HSMP (SoC)", "Memory temperatures", "Memory (ECC)", "Storage (NVMe)", "Drive activity (NVMe)", "Drive health (NVMe)", "Network", "Other"];
+        ["CPU", "GPU", "Motherboard", "Chipset / ASUS EC", "BMC", "AMD HSMP (SoC)", "Memory temperatures", "Memory (ECC)", "Storage (NVMe)", "Drive activity (NVMe)", "Drive health (NVMe)", "Network", "Other"];
 
     public static string Group(HardwareItem item)
     {
         if (item.Backend == "edac") return "Memory (ECC)";
         if (item.Backend == "nvml") return "GPU";
+        if (item.Backend == "bmc") return "BMC";
         if (item.Backend == "nvme-health") return "Drive health (NVMe)";
         if (item.Backend == "nvme-activity") return "Drive activity (NVMe)";
         var chip = item.Id.Split(':').ElementAtOrDefault(1) ?? "";
@@ -84,7 +85,7 @@ public static class SensorPollingPlan
                 if (settings.Controls.Any(c => c.Id.Equals(item.Id, StringComparison.OrdinalIgnoreCase) && c.Hidden)) continue;
                 requested.Add(item.Id);
                 var configured = settings.Controls.FirstOrDefault(c => c.Id.Equals(item.Id, StringComparison.OrdinalIgnoreCase))?.PairedTachId;
-                requested.Add(!string.IsNullOrWhiteSpace(configured) ? configured : (item.Backend == "nvml" ? item.Id.Replace(":fan:", ":tach:") : item.Id.Replace(":pwm:", ":fan:")));
+                requested.Add(!string.IsNullOrWhiteSpace(configured) ? configured : (item.Backend is "nvml" or "bmc" ? item.Id.Replace(":fan:", ":tach:") : item.Id.Replace(":pwm:", ":fan:")));
             }
         }
         if (gpuPageVisible)
@@ -94,7 +95,7 @@ public static class SensorPollingPlan
             requested.Add(calibrating.Id);
             var paired = settings.Controls.FirstOrDefault(c => c.Id == calibrating.Id)?.PairedTachId;
             requested.Add(!string.IsNullOrWhiteSpace(paired) ? paired : calibrating.Id.Replace(
-                calibrating.Backend == "nvml" ? ":fan:" : ":pwm:", calibrating.Backend == "nvml" ? ":tach:" : ":fan:"));
+                calibrating.Backend is "nvml" or "bmc" ? ":fan:" : ":pwm:", calibrating.Backend is "nvml" or "bmc" ? ":tach:" : ":fan:"));
         }
         // Drop stale references. The two fixed legacy CPU power ids support the raw sysfs fallback.
         requested.IntersectWith(inventory.Select(i => i.Id).Concat(settings.HudEnabled

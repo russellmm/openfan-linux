@@ -3,6 +3,20 @@
 Reviewed October 18–19, 2026 on Ubuntu 26.10, kernel 7.3.0-9, ASUS Pro WS TRX50-SAGE WIFI A,
 Threadripper 9970X, four 32 GB Kingston DDR5 ECC modules and three NVIDIA GPUs.
 
+## November 14 WRX90 update
+
+The current workstation has eight DIMMs. The old binding setup exposed four because it
+only checked 0x50 and 0x52; the verified WRX90 setup now binds 0x50–0x53 on each memory
+controller AMDI0010:01/:02. **Eight direct SPD5118 temperature rows** are readable, with
+existing identities preserved. See [memory setup](../DRAM-TEMPS-README.md).
+
+Version 0.4.6 adds a dedicated **BMC** group: 22 temperature records, 16 RPM records and
+seven duty targets (45 rows, including unavailable records). All eight BMC DIMM slot
+readings are present. Standard local IPMI SDR temperatures and fans are read through the
+existing helper and shared inventory; direct SPD readings remain separate. Table demand
+filters publication while helper snapshots continue heartbeat/cached SDR polling.
+The October counts and TRX50 hardware coverage below are historical.
+
 ## Collection design
 
 OpenFan now uses **libsensors** as its default read-only hwmon reader. This is the standard library

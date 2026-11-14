@@ -1,5 +1,33 @@
 # Reading Memory (RAM) Temperatures on This Linux PC
 
+## November 14 update — eight DIMMs on WRX90
+
+The current board is **ASUS Pro WS WRX90E-SAGE SE**, with eight 32 GiB DDR5 modules.
+All **eight direct SPD5118 temperature sensors** are now readable in OpenFan's
+**Sensors → Memory temperatures** group. The old four-module binding script only checked
+addresses 0x50 and 0x52, so it missed responding hubs at 0x51 and 0x53 on both memory buses.
+The kernel driver successfully validated those four additional hubs and exposed real readings.
+
+The updated, installed `dram-temps-bind.sh` checks 0x50–0x53 only on the two verified WRX90
+memory controllers, AMDI0010:01 and AMDI0010:02. It recognizes this board before probing,
+skips existing devices, and preserves the previous 0x50/0x52 setup for the known TRX50 board.
+The enabled `dram-temps.service` was restarted successfully; another run leaves eight devices.
+This change is startup setup, separate from the app package. The script never scans GPU
+or unrelated adapters or reads the SPD EEPROM. The temperature driver is documented in the
+[Linux SPD5118 guide](https://docs.kernel.org/hwmon/spd5118.html).
+
+The original four controller/address identities and their saved aliases/curve choices are
+unchanged. New sensors start unchecked for **Use in curves**. Physical slot letters have
+not been mapped to the direct controller/address identities.
+
+OpenFan 0.4.6 also adds a **BMC** sensor group with slot-labeled **DIMMA1_Temp–DIMMH1_Temp**,
+CPU/LAN/PCIe temperatures, and fan telemetry. BMC temperatures are reported independently
+and differ from direct SPD readings; they are not substituted or merged. See
+[BMC details](docs/wrx90-bmc-fans.md). After a reboot, verify **eight** spd5118 devices,
+not the four mentioned in the historical TRX50 notes below.
+
+## Historical TRX50 setup (October 2026)
+
 ## The short version
 
 Windows programs like HWiNFO64 can show a temperature sensor on each stick of RAM. All four DDR5 SPD hub sensors now work on this Linux machine and are integrated into OpenFan.

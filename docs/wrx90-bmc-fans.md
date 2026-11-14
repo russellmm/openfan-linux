@@ -1,10 +1,33 @@
-# ASUS WRX90 BMC fans
+# ASUS WRX90 BMC fans and sensors
 
 On November 14, 2026 the development system changed from the TRX50-SAGE WIFI A / 9970X
 to an **ASUS Pro WS WRX90E-SAGE SE**, BIOS **1405**, and **Threadripper PRO 9975WX**.
 The board exposes NCT6798 hwmon, ASUS EC sensors and `/dev/ipmi0`. Presence of hwmon PWM
 files does not establish ownership of the headers. A live IPMI test verified fan control
 through the BMC and a different channel order from the previous board.
+
+## Sensors tab (0.4.6)
+
+A dedicated **BMC** category now appears in Sensor groups and the Sensors table.
+On this firmware it contains **45 rows**: 22 temperature records, 16 fan RPM records
+and seven manual duty targets. Disabled/unavailable sensors stay visible with missing
+readings; a numeric 0 RPM remains zero. Automatic curve duty is unknown and shown missing,
+not inferred from RPM. Numeric threshold-alarm readings remain valid.
+
+The temperature records include **DIMMA1_Temp through DIMMH1_Temp**, CPU package, LAN,
+and PCIe records. Standard read-only `sdr type Temperature` readings refresh every five
+seconds; fan SDRs every two seconds. No new OEM writes or temperature-source changes are
+used. These readings share the app's inventory, statistics and Use in curves selection.
+Extra sensors use stable `bmc:asus-wrx90:sdr:NN` identities based on the BMC sensor number;
+existing seven control/tach IDs are retained. Additional fans such as CPU_OPT, USB4,
+VRM heatsink and M.2 are telemetry only, not new fan actuators.
+
+BMC DIMM values are independent of the eight direct SPD5118 values in Memory temperatures.
+They differ in live tests, so OpenFan does not map, merge or substitute one for the other.
+BMC temperatures can be checked for Use in curves like other temperature readings.
+Hiding BMC rows suppresses their publication to the table, except required curve/HUD/page
+inputs; the helper's cached SDR polling and fan-control heartbeat continue for restoration
+and lease handling. Update both app and helper to expose the new temperature records.
 
 ## Supported hardware
 
@@ -123,5 +146,5 @@ The checked-in, credential-free response fixture is `tests/OpenFan.Core.Tests/Fi
 Tests exercise read-only probing, identity rejection, single-zone writes/readback,
 zero targets on every BMC zone, range validation, journal failures/recovery, competing clients,
 lease expiration, socket disconnect and re-arming after control loss. Firmware zero-rejection
-rollback is also covered. Full suite: **307 passing tests**.
+rollback is also covered. Full suite as of 0.4.6: **347 passing tests**, including SDR temperatures and all eight BMC DIMM slots.
 Local verification records are under ignored `publish/bmc-audit/`.

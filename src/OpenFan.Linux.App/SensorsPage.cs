@@ -35,7 +35,7 @@ public sealed partial class MainWindow
 
     /// <summary>Measurements, counters, optional status flags and readback of known fan controls.</summary>
     private static bool IsSensorish(HardwareItem i) =>
-        i.Kind != HardwareKind.TemperatureLimit && (i.Kind != HardwareKind.Control || i.Backend is "hwmon" or "nvml");
+        i.Kind != HardwareKind.TemperatureLimit && (i.Kind != HardwareKind.Control || i.Backend is "hwmon" or "nvml" or "bmc");
 
     // Maps hwmon index -> (drive model, PCI address). NVMe temp chips are /sys/class/hwmon/hwmonN (name
     // "nvme"); the model file sits behind the device symlink and reads through it directly. The PCI address
