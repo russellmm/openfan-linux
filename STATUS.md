@@ -1,10 +1,24 @@
 # OpenFan Linux — Project Status & Handover
 
-**Last updated:** 2026-11-14 · **State: v0.4.2 published on GitHub and installed with verified WRX90 BMC support.**
+**Last updated:** 2026-11-14 · **State: v0.4.3 full-range BMC PWM correction prepared for deployment.**
 Branch `main` → github.com/russellmm/openfan-linux. Spec / design: [`openfan-ubuntu.md`](openfan-ubuntu.md). Hardware findings journal: [`spike-notes.md`](spike-notes.md). Manual install chain (udev, modules-load, helper service): [`packaging/README.md`](packaging/README.md). CPU power CLI + boot persistence: [`tools/hsmp-control/README.md`](tools/hsmp-control/README.md).
 NOTE: history was rewritten once before the first push to scrub a sudo password from old STATUS revisions. Keep credentials out of these docs — that includes paths to local password/token files.
 
-## Version 0.4.2 release
+## Version 0.4.3: full-range PWM correction
+
+- Removed driver-imposed BMC floors: all seven zones, including W_PUMP+, now expose
+  minimum 0% and accept 0–100% targets. Manual targets write the same duty to all five
+  BMC curve points. The previous 70°C override is removed; thermal policy belongs to
+  the user's OpenFan curves. The original-curve journal and restore/lease behavior remain.
+- Calibration no longer adds its own 20% sweep minimum. A zero-floor control sweeps
+  0, 10, 20, …, 100%; RTX PRO 6000 controls still start at 30%, with the existing GPU
+  writer's minimum preserved. Old calibration points are not changed or fabricated.
+- Version bumped to **0.4.3**. [Release notes](docs/releases/v0.4.3.md),
+  [calibration guide](docs/fan-calibration.md), [BMC guide](docs/wrx90-bmc-fans.md) and
+  installation documentation updated. **306 tests pass**, including zero-duty commands,
+  readback and exact restoration on every zone plus helper-client and sweep regressions.
+
+## Version 0.4.2 release (historical)
 
 - OpenFan's assembly/package version is now **0.4.2**. Home and About both obtain the
   displayed version from the assembly; About no longer contains a stale hard-coded version.

@@ -6,7 +6,9 @@ namespace OpenFan.Core.Tests;
 public class CalibrationRulesTests
 {
     [Theory]
-    [InlineData(0, "20,30,40,50,60,70,80,90,100")]
+    [InlineData(0, "0,10,20,30,40,50,60,70,80,90,100")]
+    [InlineData(5, "5,10,20,30,40,50,60,70,80,90,100")]
+    [InlineData(20, "20,30,40,50,60,70,80,90,100")]
     [InlineData(30, "30,40,50,60,70,80,90,100")]
     [InlineData(35, "35,40,50,60,70,80,90,100")]
     [InlineData(100, "100")]

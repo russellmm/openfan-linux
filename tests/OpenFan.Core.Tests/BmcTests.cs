@@ -92,7 +92,7 @@ public sealed class BmcTests : IDisposable
     }
 
     [Fact]
-    public void TargetUsesOnlyOneZonePreservesThermalGuardAndRestoresExactCurve()
+    public void TargetUsesOnlyOneZoneAndRestoresExactCurve()
     {
         var fw = new Firmware();
         var originals = fw.States.ToDictionary(p => p.Key, p => (byte[])p.Value.Clone());
@@ -101,7 +101,7 @@ public sealed class BmcTests : IDisposable
         var owner = Guid.NewGuid();
         driver.SetPercent(owner, Id(1), 70).Should().BeTrue(driver.LastError);
         File.Exists(Journal).Should().BeTrue();
-        fw.States[1].Should().Equal(4, 20, 70, 45, 70, 65, 70, 70, 100, 100, 100);
+        fw.States[1].Should().Equal(4, 20, 70, 45, 70, 65, 70, 70, 70, 100, 70);
         foreach (var index in originals.Keys.Where(i => i != 1)) fw.States[index].Should().Equal(originals[index]);
         var snapshot = driver.Snapshot(owner);
         snapshot.Channels.Single(c => c.Index == 1).TargetPercent.Should().Be(70);
@@ -112,15 +112,35 @@ public sealed class BmcTests : IDisposable
     }
 
     [Theory]
-    [InlineData(1, 0)]
-    [InlineData(0, 19)]
-    [InlineData(6, 99)]
+    [InlineData(1, -1)]
+    [InlineData(0, 101)]
+    [InlineData(6, -1)]
     [InlineData(1, 101)]
-    public void FloorsAndPumpProtectionRejectWrites(int index, int percent)
+    public void OutOfRangeTargetsRejectWrites(int index, int percent)
     {
         var fw = new Firmware(); using var driver = Controller(fw);
         driver.SetPercent(Guid.NewGuid(), Id(index), percent).Should().BeFalse();
         fw.Writes.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(6)]
+    public void EveryBmcZoneAcceptsZeroAndRestoresItsOriginalCurve(int index)
+    {
+        var fw = new Firmware(); using var driver = Controller(fw);
+        var before = fw.States[index].ToArray(); var owner = Guid.NewGuid();
+        driver.Snapshot(owner).Channels.Should().OnlyContain(c => c.MinPercent == 0);
+        driver.SetPercent(owner, Id(index), 0).Should().BeTrue(driver.LastError);
+        Enumerable.Range(0, 5).Select(i => fw.States[index][2 + 2 * i]).Should().OnlyContain(d => d == 0);
+        driver.Snapshot(owner).Channels.Single(c => c.Index == index).TargetPercent.Should().Be(0);
+        driver.SetDefault(owner, Id(index)).Should().BeTrue();
+        fw.States[index].Should().Equal(before);
     }
 
     [Fact]
@@ -210,10 +230,12 @@ public sealed class BmcTests : IDisposable
         server.Start();
         using (var client = new BmcHelperClient(server.SocketPath))
         {
-            client.Discover().Should().HaveCount(14);
-            client.SetPercent(Id(1), 60).Should().BeTrue(client.LastError);
+            var items = client.Discover();
+            items.Should().HaveCount(14);
+            items.Where(i => i.Kind == OpenFan.Core.Hardware.HardwareKind.Control).Should().OnlyContain(i => i.MinPercent == 0);
+            client.SetPercent(Id(1), 0).Should().BeTrue(client.LastError);
             var readings = new Dictionary<string, double?>(); client.ReadInto(readings);
-            readings[Id(1)].Should().Be(60);
+            readings[Id(1)].Should().Be(0);
             client.TakeReapplyRequest().Should().BeFalse();
             driver.ExpireLeases(DateTimeOffset.UtcNow.AddSeconds(16));
             client.ReadInto(readings);

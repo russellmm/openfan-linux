@@ -178,7 +178,7 @@ public sealed partial class CalibrationWindow : Window
         }
         finally { _movingSweepSlider = false; }
         if (_sweep is null) return; // a rejected command stopped the sweep
-        _dwellUntil = DateTime.Now.AddSeconds(_item.Backend == "nvml" ? 8 : 3.5);
+        _dwellUntil = DateTime.Now.AddSeconds(_item.Backend is "nvml" or "bmc" ? 8 : 3.5);
         AutoStepBtn.Content = $"Sweeping… {p} % — click to stop";
     }
 

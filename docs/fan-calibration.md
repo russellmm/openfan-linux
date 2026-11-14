@@ -9,9 +9,10 @@ label and **Point %** follow together. **Add (…%, …RPM)** records the curren
 measured RPM. The adjacent **Add** uses Point % instead: edit Point % to deliberately override
 the point's percentage without changing the fan command. Moving the slider resets Point % to match.
 
-Automatic stepping uses 20–100%, or starts at the hardware minimum if higher. The RTX PRO 6000
-starts at 30%; its 30% command is never recorded as a 20% step. GPU steps wait eight seconds;
-motherboard steps wait 3.5 seconds. Allow additional settling and replace a point manually if
+Automatic stepping starts at the selected control's minimum and proceeds to 100% in 10% steps.
+BMC and other zero-floor controls include 0%, 10% and 20%. The RTX PRO 6000
+starts at 30%; lower commands are not added to its sweep. GPU and BMC steps wait eight seconds;
+direct hwmon motherboard steps wait 3.5 seconds. Allow additional settling and replace a point manually if
 needed. Stop a sweep by clicking its button again or by moving the slider yourself. A rejected
 command or missing RPM stops the sweep without adding a point for that step; missing readings
 are never converted to zero. Manual Add buttons disable when the command failed or RPM is missing.
@@ -20,6 +21,12 @@ On the RTX 5060 Ti, 0% uses automatic GPU control so firmware can stop the fan; 
 use manual control. Firmware may run the fan at zero target when its thermal rules require it.
 Hardware floors still apply to other cards. The RPM column always records the actual paired tach
 reading rather than an interpolated estimate or an assumption about the target.
+
+Since 0.4.3 all ASUS BMC fan headers, including W_PUMP+, accept 0–100% PWM. The driver
+adds no 20% minimum, fixed pump duty or temperature override. A zero target programs zero
+duty in every BMC curve point; the RPM readout remains measured. CPU_FAN and CPU_OPT still
+share one hardware zone. Existing calibration tables are retained; add low-duty points or
+run a new sweep to measure them.
 
 Only the selected fan is handed to the calibration window; other curves continue. The selected
 curve pauses temporarily without changing its saved Enabled flag. Closing the dialog restores

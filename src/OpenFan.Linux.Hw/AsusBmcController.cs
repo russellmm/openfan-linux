@@ -147,8 +147,8 @@ public sealed class AsusBmcController : IDisposable
         lock (_gate)
         {
             if (_disposed || !Available) return false;
-            if (!TryIndex(id, out var index) || percent < (index == 6 ? 100 : 20) || percent > 100)
-            { LastError = "BMC fan target must respect its 20% floor; W_PUMP+ is fixed at 100%."; return false; }
+            if (!TryIndex(id, out var index) || percent is < 0 or > 100)
+            { LastError = "BMC fan target must be 0–100%."; return false; }
             if (_owners.TryGetValue(index, out var held) && held.Owner != owner)
             { LastError = "This BMC zone is owned by another OpenFan session."; return false; }
             try
@@ -162,7 +162,9 @@ public sealed class AsusBmcController : IDisposable
                 }
                 _owners[index] = (owner, DateTimeOffset.UtcNow);
                 var target = (byte[])_original[index].Clone();
-                for (var i = 0; i < 5; i++) target[2 + 2 * i] = (byte)(target[1 + 2 * i] >= 70 ? 100 : percent);
+                // A manual duty is a flat curve. Thermal policy belongs to the user's
+                // OpenFan curve; do not add undocumented floors or temperature overrides.
+                for (var i = 0; i < 5; i++) target[2 + 2 * i] = (byte)percent;
                 if (!target.SequenceEqual(current)) WriteState(index, target);
                 _targets[index] = percent;
                 LastError = null;
@@ -246,7 +248,7 @@ public sealed class AsusBmcController : IDisposable
                 _lastRpmRead = DateTimeOffset.UtcNow;
             }
             return new(true, LastError, Enumerable.Range(0, 7).Select(index => new BmcFanChannel(index, SensorNames[index],
-                index == 6 ? 100 : 20, _targets.TryGetValue(index, out var target) ? target : null,
+                0, _targets.TryGetValue(index, out var target) ? target : null,
                 _rpms.GetValueOrDefault(SensorNames[index]))).ToArray());
         }
     }

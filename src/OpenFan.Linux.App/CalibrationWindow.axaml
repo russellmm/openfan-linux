@@ -41,7 +41,7 @@
           <Button x:Name="AddPointBtn" Grid.Column="3" Content="Add" MinWidth="120" Height="36" />
         </Grid>
 
-        <Button x:Name="AutoStepBtn" Content="Auto step 20–100%" HorizontalAlignment="Stretch" Height="40" />
+        <Button x:Name="AutoStepBtn" Content="Auto step" HorizontalAlignment="Stretch" Height="40" />
         <TextBlock x:Name="StatusText" Foreground="#EF6B6B" TextWrapping="Wrap" IsVisible="False" />
       </StackPanel>
 

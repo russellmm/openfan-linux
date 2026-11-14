@@ -153,7 +153,7 @@ static void Dump(IReadOnlyList<HardwareItem> items, Dictionary<string, double?> 
 
 static string DescribeControl(HardwareItem item, double? duty, HwmonBackend hwmon)
 {
-    if (item.Backend == "bmc") return $"target {(duty is null ? "firmware curve" : $"{duty:0.#}%")} (70°C guard)";
+    if (item.Backend == "bmc") return $"target {(duty is null ? "firmware curve" : $"{duty:0.#}%")}";
     if (item.Backend.Equals("nvml", StringComparison.OrdinalIgnoreCase))
     {
         var floor = item.MinPercent > 0 ? $"floor {item.MinPercent}% " : "";
@@ -243,7 +243,7 @@ static int PermissionDenied(string id)
     Console.Error.WriteLine($"Cannot write {id}: permission denied or unsupported by the driver.");
     Console.Error.WriteLine("For hwmon PWM: check 'openfan' group membership (relogin after usermod).");
     Console.Error.WriteLine("For nvml fans: start openfan-helper (packaging/README) or run under sudo.");
-    Console.Error.WriteLine("For BMC fans: update/start openfan-helper and check its log; WRX90 floors are enforced.");
+    Console.Error.WriteLine("For BMC fans: update/start openfan-helper and check its log.");
     return 3;
 }
 

@@ -41,7 +41,7 @@ public sealed class BmcHelperClient(string? socketPath = null) : ISensorBackend,
             {
                 new HardwareItem { Id = AsusBmcController.IdPrefix + channel.Index, Name = channel.Index == 0 ? "CPU_FAN / CPU_OPT (BMC)" : channel.Name + " (BMC)",
                     Kind = HardwareKind.Control, Backend = Name, Group = "ASUS BMC fans", MinPercent = channel.MinPercent,
-                    CanSet = Available, Source = "Local IPMI", Details = "Requested BMC duty below 70°C; firmware curve forces 100% at 70°C and above. Original curve restored on release. CPU_FAN and CPU_OPT share a zone." },
+                    CanSet = Available, Source = "Local IPMI", Details = "Manual PWM target, 0–100%. Original firmware curve restored on release. CPU_FAN and CPU_OPT share a zone." },
                 new HardwareItem { Id = "bmc:asus-wrx90:tach:" + channel.Index, Name = channel.Name,
                     Kind = HardwareKind.Tach, Backend = Name, Group = "ASUS BMC fans", CanSet = false, Unit = "RPM", Source = "BMC SDR" },
             }).ToArray();
@@ -72,7 +72,7 @@ public sealed class BmcHelperClient(string? socketPath = null) : ISensorBackend,
             var snapshot = JsonSerializer.Deserialize<BmcFanSnapshot>(Convert.FromBase64String(response[3..]));
             if (snapshot is null || snapshot.Channels is null || snapshot.Channels.Length > 7 ||
                 snapshot.Channels.Select(c => c.Index).Distinct().Count() != snapshot.Channels.Length ||
-                snapshot.Channels.Any(c => c.Index is < 0 or > 6 || c.MinPercent is < 20 or > 100))
+                snapshot.Channels.Any(c => c.Index is < 0 or > 6 || c.MinPercent is < 0 or > 100))
                 throw new JsonException("Invalid BMC snapshot.");
             _snapshot = snapshot;
             if (_activeTargets.Any(p => snapshot.Channels.FirstOrDefault(c => c.Index == p.Key)?.TargetPercent != p.Value))

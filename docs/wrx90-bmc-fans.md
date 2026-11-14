@@ -15,13 +15,13 @@ closed. The eighth slot is N/A and never becomes a control.
 
 | OpenFan ID suffix | Firmware label | Paired RPM | Policy |
 | --- | --- | --- | --- |
-| `fan:0` | CPU_FAN & CPU_OPT | CPU_FAN | Shared zone, 20–100% |
-| `fan:1` | CHA_FAN1 | CHA_FAN1 | 20–100% |
-| `fan:2` | CHA_FAN2 | CHA_FAN2 | 20–100% |
-| `fan:3` | CHA_FAN3 | CHA_FAN3 | 20–100% |
-| `fan:4` | CHA_FAN4 | CHA_FAN4 | 20–100%; currently disconnected |
-| `fan:5` | CHA_FAN5 | CHA_FAN5 | 20–100% |
-| `fan:6` | W_PUMP+ | W_PUMP+ | Fixed at 100% |
+| `fan:0` | CPU_FAN & CPU_OPT | CPU_FAN | Shared zone, 0–100% |
+| `fan:1` | CHA_FAN1 | CHA_FAN1 | 0–100% |
+| `fan:2` | CHA_FAN2 | CHA_FAN2 | 0–100% |
+| `fan:3` | CHA_FAN3 | CHA_FAN3 | 0–100% |
+| `fan:4` | CHA_FAN4 | CHA_FAN4 | 0–100%; currently disconnected |
+| `fan:5` | CHA_FAN5 | CHA_FAN5 | 0–100% |
+| `fan:6` | W_PUMP+ | W_PUMP+ | 0–100% |
 
 IDs start with `bmc:asus-wrx90:`; tach IDs use `tach:N` instead of `fan:N`.
 CPU_OPT cannot be controlled independently. USB4, VRM and M.2 fans remain available
@@ -57,9 +57,10 @@ now confines reads to advertised indices. Firmware rejected the manual's no-payl
 temperature-source getter (`30 93`); the driver does not guess a payload for a command
 that can also change temperature sources.
 
-Targets replace the duty values below 70°C in the existing five-point temperature grid.
-The 70°C and 100°C points stay at 100%. Interpolation toward 70°C can increase actual
-duty above the requested target; the card labels it **target**, and RPM is measured
+Since 0.4.3 a manual target replaces all five duty values in the existing temperature grid,
+creating a flat 0–100% PWM command. The driver adds no minimum duty, pump restriction or
+70°C/100°C override; OpenFan's assigned curves determine thermal policy.
+The card labels the requested duty **target**, and RPM is measured
 separately from BMC SDRs, refreshed every two seconds. Target duty is unknown while
 the original firmware curve is active; it is not guessed from temperature or RPM.
 The temperature source remains whichever source the firmware was already using.
@@ -103,6 +104,6 @@ come from live firmware labels and SDR records.
 
 The checked-in, credential-free response fixture is `tests/OpenFan.Core.Tests/Fixtures/asus-wrx90-bmc.json`.
 Tests exercise read-only probing, identity rejection, single-zone writes/readback,
-thermal/pump floors, journal failures/recovery, competing clients, lease expiration,
-socket disconnect and re-arming after control loss. Full suite: **297 passing tests**.
+zero targets on every BMC zone, range validation, journal failures/recovery, competing clients,
+lease expiration, socket disconnect and re-arming after control loss. Full suite: **306 passing tests**.
 Local verification records are under ignored `publish/bmc-audit/`.

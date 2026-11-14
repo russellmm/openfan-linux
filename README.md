@@ -23,8 +23,8 @@ Threadripper PRO 9975WX / WRX90E-SAGE SE and RTX 5060 Ti / 2× RTX PRO 6000 Blac
 ## Installed application
 
 Download the amd64 Debian installer and checksum from [GitHub Releases](https://github.com/russellmm/openfan-linux/releases).
-The current version is **v0.4.2**, tested on Ubuntu 26.10. See the
-[v0.4.2 release notes](docs/releases/v0.4.2.md) for ASUS WRX90 BMC support and upgrade details.
+The current version is **v0.4.3**, tested on Ubuntu 26.10. See the
+[v0.4.3 release notes](docs/releases/v0.4.3.md) for full-range BMC PWM control and calibration.
 
 Build a self-contained Ubuntu/Debian package with `bash packaging/build-deb.sh "$HOME/Downloads/OpenFan"`.
 It installs the app under `/opt/openfan/app`, the launcher as `/usr/bin/openfan`, and the privileged
@@ -36,8 +36,9 @@ See [installation, upgrades and launcher migration](docs/installation.md).
 - **ASUS WRX90 BMC fans** — local IPMI control on the Pro WS WRX90E-SAGE SE, validated with
   BMC firmware 2.01 / auxiliary revision 22. Seven named zones replace the NCT PWM cards:
   CPU_FAN/CPU_OPT together, CHA_FAN1–5, and W_PUMP+. Original curves are restored on release,
-  disconnect or a stalled client, with recovery after a helper crash. Duty targets have a 20% floor,
-  retain full speed at 70°C, and keep W_PUMP+ at 100%. Update both app and helper; `ipmitool` is required.
+  disconnect or a stalled client, with recovery after a helper crash. All seven zones accept
+  0–100% PWM targets, including the pump header, with no driver-imposed floor or temperature
+  override. Update both app and helper; `ipmitool` is required.
   See [BMC support and hardware verification](docs/wrx90-bmc-fans.md).
 
 - **CPU page** — live package temp, socket power draw, PPT cap, TDP, TjMax, load % and boost frequency for the
