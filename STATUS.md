@@ -1,6 +1,6 @@
 # OpenFan Linux — Project Status & Handover
 
-**Last updated:** 2026-11-14 · **State: v0.4.5 source selection implemented; GUI validation and release deployment in progress.**
+**Last updated:** 2026-11-14 · **State: v0.4.5 installed and verified; per-sensor curve source selection complete.**
 Branch `main` → github.com/russellmm/openfan-linux. Spec / design: [`openfan-ubuntu.md`](openfan-ubuntu.md). Hardware findings journal: [`spike-notes.md`](spike-notes.md). Manual install chain (udev, modules-load, helper service): [`packaging/README.md`](packaging/README.md). CPU power CLI + boot persistence: [`tools/hsmp-control/README.md`](tools/hsmp-control/README.md).
 NOTE: history was rewritten once before the first push to scrub a sudo password from old STATUS revisions. Keep credentials out of these docs — that includes paths to local password/token files.
 
@@ -22,6 +22,15 @@ NOTE: history was rewritten once before the first push to scrub a sudo password 
   sensors and assigned-source demand after unchecking. App Release build succeeds.
 - Isolated UI validation uses private settings and a simulated fan-write helper; all real
   hardware telemetry stays read-only. Records in ignored `publish/release-v0.4.5/`.
+- Installed **0.4.5** from clean package source `01c6a94ef90b5674d1a0ac9b294fe50924a27ee5`. Installer
+  SHA-256 `fa23a3c2cc67224b33b5658ca42aa97607e34ff67c9c8c9890aa903eb364f1b5`. Installed app/helper hashes match the package;
+  package verification is clean and the helper active. Existing profile/calibration hashes,
+  CPU/PPT settings, GPU power limits and all seven BMC curves match pre-upgrade snapshots.
+- GUI checks confirmed default unchecked boxes, disabled non-temperature rows, exact
+  checked-only dropdowns, live editor refresh after unchecking, preserved SensorId after
+  editor OK, persisted checkbox state on restart, and a working existing graph with an
+  empty menu. Checkbox layout was verified at the final 32-pixel row height. Test app closed;
+  user profiles were not edited and no test fan commands were sent to real hardware.
 
 ## Version 0.4.4: low-speed RPM and calibration defaults
 
