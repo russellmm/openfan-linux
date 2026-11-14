@@ -20,7 +20,11 @@ var cpuAvailable = HsmpPowerReader.FindHsmpChipDirectory("/sys/class/hwmon") is 
 var frequency = new CpuFrequencyControl();
 var frequencyAvailable = CpuFrequencyMonitor.ReadPolicies().Count > 0;
 using var storage = new NativeNvmeSmartReader();
-if (!nvml.Available && !cpuAvailable && !frequencyAvailable && NvmeDevices.Discover().Count == 0)
+// Only this validated board invokes the one-time BMC probe. Other machines retain
+// their existing hwmon path and do not issue ASUS OEM commands.
+using var bmc = BmcHelperClient.ReplacesNctControls ? new AsusBmcController() : null;
+if (bmc is not null) Console.WriteLine("BMC fans: " + (bmc.Available ? "7 verified WRX90 zones" : bmc.LastError));
+if (!nvml.Available && !cpuAvailable && !frequencyAvailable && NvmeDevices.Discover().Count == 0 && bmc?.Available != true)
 {
     Console.Error.WriteLine("NVML, CPU PPT, cpufreq and NVMe unavailable — helper has no job; exiting.");
     return 2;
@@ -29,7 +33,7 @@ if (!nvml.Available && !cpuAvailable && !frequencyAvailable && NvmeDevices.Disco
 // OPENFAN_HELPER_SOCKET also overrides the client side (NvmlHelperClient), so tests can use a private socket.
 var socketPath = Environment.GetEnvironmentVariable("OPENFAN_HELPER_SOCKET") ?? "/run/openfan/helper.sock";
 
-var server = new HelperServer(nvml, socketPath, nvml, cpu, frequency, storage);
+var server = new HelperServer(nvml, socketPath, nvml, cpu, frequency, storage, bmc);
 server.Start();
 server.ApplyGroupAccess("openfan");
 

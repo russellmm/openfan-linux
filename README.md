@@ -1,12 +1,13 @@
 # OpenFan Linux
 
-Native Ubuntu fan-control app for TRX50-class workstations — motherboard/case/AIO fans via **hwmon** and NVIDIA
+Native Ubuntu fan-control app for TRX50 and WRX90 workstations — motherboard/case/AIO fans via **hwmon** or the validated **ASUS BMC** backend, and NVIDIA
 GPU fans + power limits via **NVML**, with a curve library (Flat / Graph / Mix) modeled on the Windows
 [OpenFan](https://github.com/ScriptHamster/OpenFan) program. Design references in [`screenshots/`](screenshots/)
 (Windows OpenFan captures); full build spec in [`openfan-ubuntu.md`](openfan-ubuntu.md).
 
-Built with Avalonia 11 / .NET 8, FluentTheme dark. Currently developed and daily-driven on Ubuntu 26.10 +
-Threadripper 9970X + RTX 5060 Ti / 2× RTX PRO 6000 Blackwell (driver 615.x).
+Built with Avalonia 11 / .NET 8, FluentTheme dark. Daily-driven on Ubuntu 26.10 with a
+Threadripper PRO 9975WX / WRX90E-SAGE SE and RTX 5060 Ti / 2× RTX PRO 6000 Blackwell
+(driver 615.x); earlier TRX50 work used a Threadripper 9970X.
 
 ## Requirements
 
@@ -22,7 +23,8 @@ Threadripper 9970X + RTX 5060 Ti / 2× RTX PRO 6000 Blackwell (driver 615.x).
 ## Installed application
 
 Download the amd64 Debian installer and checksum from [GitHub Releases](https://github.com/russellmm/openfan-linux/releases).
-The first packaged release is **v0.4.1**, tested on Ubuntu 26.10.
+The current version is **v0.4.2**, tested on Ubuntu 26.10. See the
+[v0.4.2 release notes](docs/releases/v0.4.2.md) for ASUS WRX90 BMC support and upgrade details.
 
 Build a self-contained Ubuntu/Debian package with `bash packaging/build-deb.sh "$HOME/Downloads/OpenFan"`.
 It installs the app under `/opt/openfan/app`, the launcher as `/usr/bin/openfan`, and the privileged
@@ -30,6 +32,13 @@ helper under `/usr/lib/openfan`. Profiles remain in the user's existing configur
 See [installation, upgrades and launcher migration](docs/installation.md).
 
 ## Features
+
+- **ASUS WRX90 BMC fans** — local IPMI control on the Pro WS WRX90E-SAGE SE, validated with
+  BMC firmware 2.01 / auxiliary revision 22. Seven named zones replace the NCT PWM cards:
+  CPU_FAN/CPU_OPT together, CHA_FAN1–5, and W_PUMP+. Original curves are restored on release,
+  disconnect or a stalled client, with recovery after a helper crash. Duty targets have a 20% floor,
+  retain full speed at 70°C, and keep W_PUMP+ at 100%. Update both app and helper; `ipmitool` is required.
+  See [BMC support and hardware verification](docs/wrx90-bmc-fans.md).
 
 - **CPU page** — live package temp, socket power draw, PPT cap, TDP, TjMax, load % and boost frequency for the
   whole socket, plus a **PPT limit editor** (100–300 W) with a *keep after reboot* option. Sourced from `amd_hsmp`,

@@ -22,6 +22,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="Fixtures/asus-wrx90-bmc.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\OpenFan.Core\OpenFan.Core.csproj" />
     <ProjectReference Include="..\..\src\OpenFan.Linux.Hw\OpenFan.Linux.Hw.csproj" />
   </ItemGroup>

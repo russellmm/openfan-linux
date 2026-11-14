@@ -10,6 +10,14 @@ if (args.Length == 0 || args[0] is "-h" or "--help")
     return Usage(args.Length == 0);
 
 var command = args[0];
+if (command == "--bmc-probe")
+{
+    if (args.Length != 1) return Usage(false);
+    var report = new BmcProbe().Read();
+    Console.WriteLine(JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
+    if (report.Error is not null) Console.Error.WriteLine(report.Error);
+    return report.Error is null ? 0 : 2;
+}
 if (command == "--cpu-power")
 {
     if (args.Length != 1)
@@ -70,6 +78,7 @@ for (var i = command == "--apply-once" ? 3 : 1; i < args.Length; i++)
 
 using var hwmon = new HwmonBackend(sysfs);
 using var nvml = new NvmlBackend();
+using var bmc = new BmcHelperClient();
 
 if (!hwmon.Available && !nvml.Available)
 {
@@ -78,10 +87,14 @@ if (!hwmon.Available && !nvml.Available)
 }
 
 // Spec §4.4 merge: hwmon first, NVML wins over nvidia-looking hwmon items.
-var items = InventoryMerger.Merge(hwmon.Discover(), nvml.Available ? nvml.Discover() : []);
+IEnumerable<HardwareItem> boardItems = hwmon.Discover();
+if (sysfs is null && BmcHelperClient.ReplacesNctControls)
+    boardItems = boardItems.Where(i => i.Kind != HardwareKind.Control || !i.Id.StartsWith("hwmon:nct6798:", StringComparison.Ordinal));
+var items = InventoryMerger.Merge(boardItems.Concat(sysfs is null ? bmc.Discover() : []), nvml.Available ? nvml.Discover() : []);
 var readings = new Dictionary<string, double?>();
 hwmon.ReadInto(readings);
 nvml.ReadInto(readings);
+if (sysfs is null) bmc.ReadInto(readings);
 
 switch (command)
 {
@@ -101,7 +114,7 @@ switch (command)
         return 0;
 
     case "--apply-once":
-        return ApplyOnce(items, args[1], args[2], seconds, hwmon, nvml);
+        return ApplyOnce(items, args[1], args[2], seconds, hwmon, nvml, bmc);
 
     default:
         return Usage(false);
@@ -140,6 +153,7 @@ static void Dump(IReadOnlyList<HardwareItem> items, Dictionary<string, double?> 
 
 static string DescribeControl(HardwareItem item, double? duty, HwmonBackend hwmon)
 {
+    if (item.Backend == "bmc") return $"target {(duty is null ? "firmware curve" : $"{duty:0.#}%")} (70°C guard)";
     if (item.Backend.Equals("nvml", StringComparison.OrdinalIgnoreCase))
     {
         var floor = item.MinPercent > 0 ? $"floor {item.MinPercent}% " : "";
@@ -158,7 +172,7 @@ static string DescribeControl(HardwareItem item, double? duty, HwmonBackend hwmo
 }
 
 static int ApplyOnce(IReadOnlyList<HardwareItem> items, string idArg, string percentArg,
-    int seconds, HwmonBackend hwmon, NvmlBackend nvml)
+    int seconds, HwmonBackend hwmon, NvmlBackend nvml, BmcHelperClient bmc)
 {
     var control = items.FirstOrDefault(i =>
         i.Kind == HardwareKind.Control &&
@@ -178,13 +192,14 @@ static int ApplyOnce(IReadOnlyList<HardwareItem> items, string idArg, string per
         return 1;
     }
 
-    var helper = new NvmlHelperClient();
+    using var helper = new NvmlHelperClient();
     var actuator = new CompositeActuator(
         ("hwmon", hwmon),
-        ("nvml", helper.IsAvailable ? helper : (OpenFan.Core.ControlLoop.IFanActuator)nvml));
+        ("nvml", helper.IsAvailable ? helper : (OpenFan.Core.ControlLoop.IFanActuator)nvml), ("bmc", bmc));
     var isNvml = control.Backend.Equals("nvml", StringComparison.OrdinalIgnoreCase);
+    var isBmc = control.Backend == "bmc";
     // Paired read-backs: hwmon pwm4↔fan4 by index; nvml fan0↔tach0.
-    var pairedId = isNvml
+    var pairedId = isNvml || isBmc
         ? control.Id.Replace(":fan:", ":tach:")
         : control.Id.Replace(":pwm:", ":fan:");
     var hasPaired = items.Any(i => i.Id == pairedId);
@@ -201,9 +216,10 @@ static int ApplyOnce(IReadOnlyList<HardwareItem> items, string idArg, string per
             var readings = new Dictionary<string, double?>();
             hwmon.ReadInto(readings);
             nvml.ReadInto(readings);
+            if (isBmc) bmc.ReadInto(readings);
             var dutyNow = readings.GetValueOrDefault(control.Id);
             var paired = hasPaired ? readings.GetValueOrDefault(pairedId) : null;
-            var extra = isNvml
+            var extra = isNvml || isBmc
                 ? (hasPaired ? $" tach={paired:0} RPM" : "")
                 : $" enable={hwmon.ReadEnableMode(control.Id)}{(hasPaired ? $" fan={paired:0} RPM" : "")}";
             Console.WriteLine($"  {DateTime.Now:HH:mm:ss} duty={dutyNow:0.#}%{extra}");
@@ -212,8 +228,9 @@ static int ApplyOnce(IReadOnlyList<HardwareItem> items, string idArg, string per
     }
     finally
     {
-        actuator.SetDefault(control.Id);
-        Console.WriteLine(isNvml
+        var restored = actuator.SetDefault(control.Id);
+        if (!restored) Console.Error.WriteLine("Fan restore failed: " + (isBmc ? bmc.LastError : "see helper log"));
+        else Console.WriteLine(isBmc ? "Restored original BMC fan curve (verified by readback)." : isNvml
             ? "Restored NVML default fan control."
             : $"Restored enable={hwmon.ReadEnableMode(control.Id)} (pre-takeover mode).");
     }
@@ -226,6 +243,7 @@ static int PermissionDenied(string id)
     Console.Error.WriteLine($"Cannot write {id}: permission denied or unsupported by the driver.");
     Console.Error.WriteLine("For hwmon PWM: check 'openfan' group membership (relogin after usermod).");
     Console.Error.WriteLine("For nvml fans: start openfan-helper (packaging/README) or run under sudo.");
+    Console.Error.WriteLine("For BMC fans: update/start openfan-helper and check its log; WRX90 floors are enforced.");
     return 3;
 }
 
@@ -235,6 +253,7 @@ static int Usage(bool ok)
         openfan-linux — OpenFan hardware layer (Ubuntu)
 
           --dump [--sysfs PATH]                      list PWM + GPU controls, temps, tachs
+          --bmc-probe                               read-only local ASUS WRX90 BMC diagnostic (run as root)
           --cpu-power                                read socket power and cap as JSON (never writes)
           --procs                                    list processes using each GPU
           --apply-once ID PERCENT [--seconds N]      hold one fan at PERCENT (default 10 s), then restore

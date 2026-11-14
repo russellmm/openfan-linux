@@ -18,6 +18,11 @@ these native libraries; it does not bundle them. If libsensors is unavailable or
 fails, the GUI reports the fallback and retains the original sysfs temperature/fan reader.
 NVIDIA telemetry continues through the driver-provided NVML library.
 
+Version 0.4.2 adds ASUS WRX90 BMC fans through the same privileged helper. Install `ipmitool`
+and use the packaged app/helper together. The backend requires the validated board/firmware
+and a local IPMI device; NCT PWM ACLs do not grant BMC access. See
+[WRX90 BMC setup, restoration and limitations](../docs/wrx90-bmc-fans.md).
+
 NVMe temperatures/activity use normal-user kernel interfaces. NVMe SMART requires the updated
 `openfan-helper` with the fixed `nvmesmart` read-only command; no nvme-cli/smartctl dependency.
 The client selects only an enumerated controller and identity hash. The helper accepts no arbitrary
@@ -77,10 +82,10 @@ openfan-linux --apply-once hwmon:nct6799:10:pwm:4 40 --seconds 15
 The Linux NVIDIA driver gates NVML fan **writes** on root euid (reads are free), and so does the
 HSMP socket power limit. `openfan-helper` runs as a small root systemd service and exposes narrow
 capabilities for members of the `openfan` group: setting/restoring NVIDIA fans, setting the
-CPU socket power limit (PPT), setting cpufreq maximum-frequency policies, and reading fixed NVMe
-SMART logs. hwmon PWM does **not** go through it (udev ACL covers that). The GUI
+CPU socket power limit (PPT), setting cpufreq maximum-frequency policies, reading fixed NVMe
+SMART logs, and controlling verified ASUS WRX90 BMC fan zones. hwmon PWM does **not** go through it (udev ACL covers that). The GUI
 never needs root. It starts without NVIDIA when another supported capability is present. If
-**none** of NVML, `amd_hsmp_hwmon`, cpufreq policies or local NVMe controllers is available it exits with status 2 ("helper has no job") rather than serving a
+**none** of NVML, `amd_hsmp_hwmon`, cpufreq policies, local NVMe controllers or supported BMC fans is available it exits with status 2 ("helper has no job") rather than serving a
 socket that can do nothing.
 
 For the October 21 fan-stop fix, rebuild and reinstall the helper as well as the app. NVIDIA zero

@@ -1,5 +1,5 @@
 [Unit]
-Description=OpenFan privileged NVIDIA GPU fan helper
+Description=OpenFan privileged GPU, BMC fan and hardware helper
 Documentation=https://github.com/russellmm/OpenFan
 After=multi-user.target
 

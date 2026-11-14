@@ -16,6 +16,7 @@ public sealed class FanApp : IDisposable
     public SettingsStore Store { get; }
     public AppSettings Settings { get; private set; }
     public HwmonBackend Hwmon { get; }
+    public BmcHelperClient Bmc { get; } = new();
     public LibSensorsBackend LibSensors { get; }
     private bool _usingLibSensors, _usingNvml;
     private bool _tickInFlight, _disposed, _forceInventoryRefresh;
@@ -24,8 +25,9 @@ public sealed class FanApp : IDisposable
     public NvmeHealthBackend NvmeHealth { get; } = new();
     private readonly NvmeActivityBackend _nvmeActivity = new();
     public string SensorReaderDescription => (_usingLibSensors ? "libsensors" : "sysfs fallback") +
-        (_usingNvml ? " + NVML" : "") + (_edac.Available ? " + EDAC" : "") + (NvmeHealth.Available ? " + NVMe" : "");
-    public string? SensorReaderError => LibSensors.Error;
+        (_usingNvml ? " + NVML" : "") + (Bmc.Available ? " + BMC" : "") + (_edac.Available ? " + EDAC" : "") + (NvmeHealth.Available ? " + NVMe" : "");
+    public string? SensorReaderError => LibSensors.Error ??
+        (BmcHelperClient.ReplacesNctControls && !Bmc.Available ? Bmc.LastError ?? "BMC fan helper unavailable; update openfan-helper." : null);
     public NvmlBackend Nvml { get; } = new();
     public NvmlHelperClient NvmlHelper { get; } = new();
 
@@ -71,7 +73,7 @@ public sealed class FanApp : IDisposable
         Hwmon = new HwmonBackend(null, Settings.Sources);
         LibSensors = new LibSensorsBackend(Settings.Sources);
         _nvmlRoute = NvmlHelper.IsAvailable ? NvmlHelper : Nvml;
-        Actuator = new CompositeActuator(("hwmon", Hwmon), ("nvml", _nvmlRoute));
+        Actuator = new CompositeActuator(("hwmon", Hwmon), ("nvml", _nvmlRoute), ("bmc", Bmc));
 
         // logind: release fans to firmware before sleep; re-arm writes after wake (EC often resets pwm_enable).
         _logind.Start(
@@ -251,7 +253,7 @@ public sealed class FanApp : IDisposable
         var cfg = Settings.Controls.FirstOrDefault(c => c.Id == control.Id);
         if (!string.IsNullOrWhiteSpace(cfg?.PairedTachId))
             return cfg!.PairedTachId!; // user override from the card's ⋮ menu
-        return control.Backend.Equals("nvml", StringComparison.OrdinalIgnoreCase)
+        return control.Backend.Equals("nvml", StringComparison.OrdinalIgnoreCase) || control.Backend == "bmc"
             ? control.Id.Replace(":fan:", ":tach:")
             : control.Id.Replace(":pwm:", ":fan:");
     }
@@ -271,6 +273,9 @@ public sealed class FanApp : IDisposable
         var libraryItems = LibSensors.Available ? LibSensors.Discover() : [];
         _usingLibSensors = LibSensors.Available && LibSensors.Error is null;
         var boardItems = _usingLibSensors ? libraryItems.Concat(Hwmon.DiscoverControls()) : Hwmon.Discover();
+        if (BmcHelperClient.ReplacesNctControls)
+            boardItems = boardItems.Where(i => i.Kind != HardwareKind.Control || !i.Id.StartsWith("hwmon:nct6798:", StringComparison.Ordinal));
+        boardItems = boardItems.Concat(Bmc.Discover());
         var merged = InventoryMerger.Merge(boardItems.Concat(_edac.Discover()).Concat(NvmeHealth.Discover()).Concat(_nvmeActivity.Discover()), _usingNvml ? Nvml.Discover() : []);
         var fingerprint = string.Join('|', merged.Select(i => $"{i.Id}\t{i.Name}\t{i.Group}").OrderBy(x => x, StringComparer.Ordinal));
         if (fingerprint != _fingerprint)
@@ -316,6 +321,7 @@ public sealed class FanApp : IDisposable
         // Nulls preserve history for paused channels without retaining stale current readings.
         var readings = _inventory.ToDictionary(i => i.Id, _ => (double?)null, StringComparer.OrdinalIgnoreCase);
         Hwmon.ReadInto(readings, requested);
+        Bmc.ReadInto(readings); // also renews the session's fan-control lease
         if (_usingLibSensors) LibSensors.ReadInto(readings, requested);
         if (_usingNvml) Nvml.ReadInto(readings, requested);
         _edac.ReadInto(readings, requested);
@@ -335,6 +341,7 @@ public sealed class FanApp : IDisposable
         _readings.Clear();
         foreach (var (id, value) in readings) _readings[id] = value;
         SensorStatistics.Record(_readings);
+        if (Bmc.TakeReapplyRequest()) Controller.ResetApplies();
         if (Settings.ApplyCurves && !Suspended)
             Controller.Tick(Settings, _inventory, CurveReadings(), NowSeconds);
         Ticked?.Invoke();
@@ -361,6 +368,7 @@ public sealed class FanApp : IDisposable
 
     /// <summary>Per-backend human reason for the last failed write (spec: never silently monitor-only).</summary>
     public string? WriteError(HardwareItem item) =>
+        item.Backend == "bmc" ? Bmc.LastError :
         item.Backend.Equals("nvml", StringComparison.OrdinalIgnoreCase)
             ? _nvmlRoute is NvmlHelperClient client ? client.LastError : Nvml.LastWriteError
             : Hwmon.LastWriteError;
@@ -454,6 +462,7 @@ public sealed class FanApp : IDisposable
         try { _pollTask?.GetAwaiter().GetResult(); } catch (Exception ex) { ErrorLog.Write("Sensor shutdown", ex); }
         _logind.Dispose();
         NvmlHelper.Dispose(); // clean socket close → helper restores anything we owned
+        Bmc.Dispose();
         Hwmon.Dispose();
         LibSensors.Dispose();
         _edac.Dispose();

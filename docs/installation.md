@@ -9,16 +9,23 @@ setup remain separate; see [packaging setup](../packaging/README.md).
 ## Build and install
 
 For a ready-built installer, use [GitHub Releases](https://github.com/russellmm/openfan-linux/releases).
-Download `openfan_0.4.1_amd64.deb` and `SHA256SUMS` into the same directory, then verify and install:
+Download `openfan_0.4.2_amd64.deb` and `SHA256SUMS` into the same directory, then verify and install:
 
 ```sh
 sha256sum -c SHA256SUMS
-sudo apt install ./openfan_0.4.1_amd64.deb
+sudo apt install ./openfan_0.4.2_amd64.deb
 sudo usermod -aG openfan "$USER"
 ```
 
 Log out and back in if this added a new group membership. The release is tested on Ubuntu 26.10
 amd64. Other Debian/Ubuntu versions must satisfy the declared dependencies and are not yet verified.
+
+Version 0.4.2 adds local BMC fan control for the validated ASUS Pro WS WRX90E-SAGE SE firmware.
+Install the app and helper together using the package. This backend also requires `ipmitool`
+(a recommended package dependency) and an available local IPMI device. Fan writes stay in the
+root helper; the desktop app uses the existing `openfan` group. Existing profiles are preserved;
+assign curves to the new BMC cards because old NCT channel assignments refer to different hardware.
+See [supported firmware, channel mapping and limits](wrx90-bmc-fans.md).
 
 From the source checkout, as a normal user:
 

@@ -18,6 +18,7 @@ namespace OpenFan.Linux.App;
 
 public sealed partial class MainWindow : Window
 {
+    private static string AppVersion => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "unknown";
     private static readonly IBrush Secondary = new SolidColorBrush(Color.Parse("#8FA0AA"));
     private static readonly IBrush CardBg = new SolidColorBrush(Color.Parse("#1E2429"));
     private static readonly IBrush CardBorder = new SolidColorBrush(Color.Parse("#2C363D"));
@@ -85,7 +86,7 @@ public sealed partial class MainWindow : Window
         NewGraphFab.Click += (_, _) => CreateCurve("graph");
         NewMixFab.Click += (_, _) => CreateCurve("mix");
 
-        _homeSubtitle = $"v{typeof(MainWindow).Assembly.GetName().Version?.ToString(3)} · hwmon + NVML";
+        _homeSubtitle = $"v{AppVersion} · {_app.SensorReaderDescription}";
 
         NavHome.Checked += (_, _) => ShowPage("home");
         NavCpu.Checked += (_, _) => ShowPage("cpu");
@@ -920,12 +921,12 @@ public sealed partial class MainWindow : Window
                 new TextBlock { Text = "OpenFan Linux", FontSize = 26, FontWeight = FontWeight.Bold },
                 new TextBlock
                 {
-                    Text = "v0.4.0 · hwmon + NVML · Avalonia / .NET 8",
+                    Text = $"v{AppVersion} · {_app.SensorReaderDescription} · Avalonia / .NET 8",
                     Foreground = Secondary, FontSize = 13,
                 },
                 new TextBlock
                 {
-                    Text = "Native Ubuntu fan control: motherboard, case and AIO fans via hwmon sysfs, NVIDIA GPU fans and power limits via NVML. Curves (flat / graph / mix) are named library objects you assign to any sensor. Design homage to the Windows OpenFan program.",
+                    Text = "Native Ubuntu fan control: motherboard, case and AIO fans via hwmon or the supported ASUS BMC, NVIDIA GPU fans and power limits via NVML. Curves (flat / graph / mix) are named library objects you assign to any sensor. Design homage to the Windows OpenFan program.",
                     TextWrapping = TextWrapping.Wrap, MaxWidth = 640, Margin = new Thickness(0, 6, 0, 0),
                     HorizontalAlignment = HorizontalAlignment.Left,
                 },
@@ -1212,7 +1213,7 @@ public sealed partial class MainWindow : Window
                 Spacing = 4,
                 Children =
                 {
-                    new TextBlock { Text = $"Sensor sources: hwmon + NVML ({_app.Inventory.Count} sensors)", FontWeight = FontWeight.SemiBold },
+                    new TextBlock { Text = $"Sensor sources: {_app.SensorReaderDescription} ({_app.Inventory.Count} sensors)", FontWeight = FontWeight.SemiBold },
                     new TextBlock { Text = "Chips and GPUs are detected automatically every second — plug in hardware and it appears. Rename anything on the Sensors page.", Foreground = Secondary, FontSize = 12, TextWrapping = TextWrapping.Wrap },
                 },
             },
@@ -1488,6 +1489,7 @@ public sealed partial class MainWindow : Window
         };
         if (item.Backend == "nvml" && item.MinPercent == 0)
             ToolTip.SetTip(valueLine, "Curve target and measured RPM. At 0%, automatic GPU control allows fan-stop; the GPU may still run its fan when needed. Positive targets use manual control.");
+        if (item.Backend == "bmc") ToolTip.SetTip(valueLine, item.Details);
 
         var errorLine = new TextBlock
         {
@@ -1648,9 +1650,11 @@ public sealed partial class MainWindow : Window
             {
                 var cfg = _app.Settings.Controls.FirstOrDefault(c => c.Id == id);
                 var commanded = applying && cfg is { Enabled: true } ? _app.CommandedPercent(cfg) : null;
+                if (card.Item.Backend == "bmc" && commanded is double bmcTarget)
+                    commanded = Math.Clamp(bmcTarget, Math.Max(cfg?.MinPercent ?? 0, card.Item.MinPercent), 100);
                 var rpm = _app.PairedRpm(card.Item);
                 if (card.CalibrateLink is { } calibrate)
-                    calibrate.IsEnabled = rpm is not null && _app.Controller.PausedControlId is null;
+                    calibrate.IsEnabled = rpm is not null && _app.Controller.PausedControlId is null && card.Item.MinPercent < 100;
                 if (card.RpmTableLink is { } table)
                     table.IsVisible = card.CalibrateLink is null || rpm is null;
                 if (card.CalibrationStatus is { } calibration)
@@ -1664,7 +1668,7 @@ public sealed partial class MainWindow : Window
 
                 if (commanded is double pct)
                 {
-                    var targetText = automaticZero ? "0 % (auto)" : $"{pct:0.#} %";
+                    var targetText = automaticZero ? "0 % (auto)" : card.Item.Backend == "bmc" ? $"{pct:0.#} % target" : $"{pct:0.#} %";
                     card.ValueLine.Text = rpm is not null
                         ? $"{targetText}     {rpm:0} RPM"
                         : estRpm is double ev1

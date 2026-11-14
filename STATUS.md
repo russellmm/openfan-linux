@@ -1,10 +1,55 @@
 # OpenFan Linux — Project Status & Handover
 
-**Last updated:** 2026-10-24 · **State: v0.4.1 published on GitHub and installed on the internal Linux NVMe.**
+**Last updated:** 2026-11-14 · **State: v0.4.2 release preparation, including the verified WRX90 BMC implementation.**
 Branch `main` → github.com/russellmm/openfan-linux. Spec / design: [`openfan-ubuntu.md`](openfan-ubuntu.md). Hardware findings journal: [`spike-notes.md`](spike-notes.md). Manual install chain (udev, modules-load, helper service): [`packaging/README.md`](packaging/README.md). CPU power CLI + boot persistence: [`tools/hsmp-control/README.md`](tools/hsmp-control/README.md).
 NOTE: history was rewritten once before the first push to scrub a sudo password from old STATUS revisions. Keep credentials out of these docs — that includes paths to local password/token files.
 
-## Current handoff and deployment
+## Version 0.4.2 release preparation
+
+- OpenFan's assembly/package version is now **0.4.2**. Home and About both obtain the
+  displayed version from the assembly; About no longer contains a stale hard-coded version.
+  Backend labels include the active BMC reader. The previous local package revision changed
+  only Debian metadata, so its GUI still showed 0.4.1; this release corrects that mismatch.
+- The release includes the WRX90 BMC source, response fixture, tests and documentation
+  described below. [Release notes](docs/releases/v0.4.2.md) and [installation guide](docs/installation.md)
+  describe the `openfan_0.4.2_amd64.deb` upgrade and preserved profiles.
+- Build the release installer from its clean tagged source with
+  `bash packaging/build-deb.sh publish/packages/v0.4.2 0.4.2`.
+  Installation/publication verification is recorded after deployment.
+
+## November 14: initial WRX90 BMC implementation and validation
+
+- Hardware is now ASUS Pro WS WRX90E-SAGE SE, BIOS 1405, Threadripper PRO 9975WX.
+  Local BMC identifies as ASUS manufacturer 2623 / product 0x1193, firmware 2.01,
+  auxiliary revision `22 00 00 00`. NCT6798 and local IPMI coexist; actual control
+  via BMC has been verified. See [WRX90 driver, protocol and limitations](docs/wrx90-bmc-fans.md).
+- Built and installed local package **0.4.1+20261114.bmc1**. Existing installed app/helper
+  paths remain the same; `openfan-helper.service` is active with seven verified BMC zones.
+  At this initial validation stage the implementation was local and uncommitted; the 0.4.2
+  release preparation above supersedes that package-only revision.
+- New root driver: `AsusBmcController`; app backend: `BmcHelperClient`; diagnostic:
+  CLI `--bmc-probe`. Uses existing kernel IPMI plus `ipmitool`, with fixed helper commands,
+  exact write/readback, exclusive session ownership, a 15-second lease, saved-curve journal
+  and startup recovery. No network credentials or new kernel driver needed.
+- BMC cards replace NCT6798 PWM cards on this board. Stable IDs are
+  `bmc:asus-wrx90:fan:0` through `:6`. CPU_FAN/CPU_OPT share zone 0, CHA_FAN1–5 use
+  zones 1–5, W_PUMP+ uses zone 6. Chassis/CPU targets have a 20% floor, preserve full
+  speed at the firmware source's 70°C point, and the pump is fixed at 100%.
+  Old profile assignments/calibrations are retained but not automatically mapped to new hardware.
+- **297 tests pass**, including 16 new BMC cases. Release app/helper package built successfully.
+  Packaged GUI checked in an isolated monitor-only Xvfb session: seven named cards and
+  correct RPM pairing, pump/disconnected-channel calibration disabled.
+- Live CHA_FAN1 70% test: approximately 2,040 → 2,760 RPM. All seven active curves
+  matched original bytes afterward. Physical client disconnect, stalled-client timeout
+  (observed recovery after 16.4 seconds at two-second observation intervals), and SIGKILL
+  helper recovery also restored the original curve. Other zones have not been speed-tested.
+- Deployment verification: saved profile hashes, all captured CPU frequency/PPT limits,
+  GPU power limits and all seven BMC curves unchanged. Prior installed app/helper backup,
+  installer, GUI capture, logs and hardware/deployment verification live in ignored
+  `publish/bmc-audit/`; installer is `publish/packages/openfan_0.4.1+20261114.bmc1_amd64.deb`.
+  Temporary development helper was stopped before installing the production helper.
+
+## October 24 handoff and deployment (historical)
 
 Start with [October 24 installation handoff](HANDOVER-2026-10-24.md); [October 21 handoff](HANDOVER-2026-10-21.md) and [October 19 handoff](HANDOVER-2026-10-19.md)
 and [October 18 history](HANDOVER-2026-10-18.md) cover the earlier sensor and CPU work.

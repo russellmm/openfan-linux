@@ -8,7 +8,7 @@ namespace OpenFan.Linux.Hw;
 /// <summary>
 /// Server side of the privileged helper protocol (spec §3.4). Root daemon accepts
 /// newline commands over a Unix socket whose file permissions restrict access to the
-/// 'openfan' group; only NVML fan ids are accepted — hwmon goes through the udev ACL.
+/// 'openfan' group; NVML and verified ASUS BMC fan ids are accepted — hwmon uses the udev ACL.
 ///
 ///   ping                    -> ok
 ///   set &lt;nvml-id&gt; &lt;pct&gt;  -> ok | err &lt;reason&gt;
@@ -41,8 +41,9 @@ public interface ICpuPowerWriter
     string? LastError { get; }
 }
 
-public sealed class HelperSession(IFanActuator actuator, IGpuPowerWriter? power = null, ICpuPowerWriter? cpu = null, ICpuFrequencyWriter? frequency = null, INvmeSmartReader? storage = null)
+public sealed class HelperSession(IFanActuator actuator, IGpuPowerWriter? power = null, ICpuPowerWriter? cpu = null, ICpuFrequencyWriter? frequency = null, INvmeSmartReader? storage = null, AsusBmcController? bmc = null)
 {
+    private readonly Guid _bmcOwner = Guid.NewGuid();
     private static readonly Regex NvmlFanId = new(
         @"^nvml:[A-Za-z0-9._-]+:fan:[0-9]+$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
@@ -64,6 +65,10 @@ public sealed class HelperSession(IFanActuator actuator, IGpuPowerWriter? power 
             case "ping":
                 return "ok";
 
+            case "bmcsnapshot" when parts.Length == 1:
+                if (bmc is null) return "err BMC backend unavailable; update openfan-helper";
+                return "ok " + Convert.ToBase64String(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(bmc.Snapshot(_bmcOwner)));
+
             case "nvmesmart" when parts.Length == 3:
                 if (storage is null) return "err NVMe health unavailable; update openfan-helper";
                 if (!Regex.IsMatch(parts[1], @"^nvme[0-9]{1,8}$", RegexOptions.CultureInvariant) ||
@@ -76,19 +81,32 @@ public sealed class HelperSession(IFanActuator actuator, IGpuPowerWriter? power 
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return "err " + ex.Message; }
 
             case "set" when parts.Length == 3:
-                if (!NvmlFanId.IsMatch(parts[1]))
-                    return "err only nvml fan ids are accepted";
+                var isBmc = AsusBmcController.TryIndex(parts[1], out _);
+                if (!NvmlFanId.IsMatch(parts[1]) && !isBmc)
+                    return "err only nvml or supported bmc fan ids are accepted";
                 if (!int.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var pct)
                     || pct is < 0 or > 100)
                     return "err percent must be 0-100";
-                if (!actuator.SetPercent(parts[1], pct))
+                if (isBmc)
+                {
+                    if (bmc is null) return "err BMC backend unavailable";
+                    if (!bmc.SetPercent(_bmcOwner, parts[1], pct)) return "err " + bmc.LastError;
+                }
+                else if (!actuator.SetPercent(parts[1], pct))
                     return "err set failed (see helper log / NVML state)";
                 _owned.Add(parts[1]);
                 return "ok";
 
             case "default" when parts.Length == 2:
+                if (AsusBmcController.TryIndex(parts[1], out _))
+                {
+                    if (bmc is null) return "err BMC backend unavailable";
+                    if (!bmc.SetDefault(_bmcOwner, parts[1])) return "err " + bmc.LastError;
+                    _owned.Remove(parts[1]);
+                    return "ok";
+                }
                 if (!NvmlFanId.IsMatch(parts[1]))
-                    return "err only nvml fan ids are accepted";
+                    return "err only nvml or supported bmc fan ids are accepted";
                 var ok = actuator.SetDefault(parts[1]);
                 _owned.Remove(parts[1]);
                 return ok ? "ok" : "err default failed";
@@ -176,7 +194,8 @@ public sealed class HelperSession(IFanActuator actuator, IGpuPowerWriter? power 
     public void RestoreOwned()
     {
         foreach (var id in _owned.ToArray())
-            actuator.SetDefault(id);
+            if (!AsusBmcController.TryIndex(id, out _)) actuator.SetDefault(id);
+        bmc?.RestoreSession(_bmcOwner);
         _owned.Clear();
     }
 }
@@ -186,7 +205,7 @@ public sealed class HelperSession(IFanActuator actuator, IGpuPowerWriter? power 
 /// tests run it against a fake actuator; openfan-helper is a thin root wrapper.
 /// </summary>
 public sealed class HelperServer(IFanActuator actuator, string socketPath, IGpuPowerWriter? power = null,
-    ICpuPowerWriter? cpu = null, ICpuFrequencyWriter? frequency = null, INvmeSmartReader? storage = null) : IAsyncDisposable
+    ICpuPowerWriter? cpu = null, ICpuFrequencyWriter? frequency = null, INvmeSmartReader? storage = null, AsusBmcController? bmc = null) : IAsyncDisposable
 {
     private readonly Socket _listener = new(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
     private readonly CancellationTokenSource _cts = new();
@@ -264,7 +283,7 @@ public sealed class HelperServer(IFanActuator actuator, string socketPath, IGpuP
 
     private async Task ServeClientAsync(Socket client)
     {
-        var session = new HelperSession(actuator, power, cpu, frequency, storage);
+        var session = new HelperSession(actuator, power, cpu, frequency, storage, bmc);
         try
         {
             using (client)

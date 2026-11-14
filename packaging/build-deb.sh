@@ -81,7 +81,7 @@ Section: utils
 Priority: optional
 Installed-Size: $size
 Depends: libc6 (>= 2.35), libgcc-s1, libstdc++6, zlib1g, libfontconfig1, libfreetype6, libx11-6, libice6, libsm6, libxext6, libxrender1, libxrandr2, libxi6, libxcursor1, libxfixes3, libsensors5, libicu78 | libicu77 | libicu76 | libicu74 | libicu72, libssl3t64 | libssl3, passwd
-Recommends: lm-sensors
+Recommends: lm-sensors, ipmitool
 Homepage: https://github.com/russellmm/openfan-linux
 Description: Fan control and hardware monitoring for Linux workstations
  Self-contained OpenFan desktop app and privileged GPU/CPU/NVMe helper.
