@@ -1,6 +1,6 @@
 # OpenFan Linux — Project Status & Handover
 
-**Last updated:** 2026-11-14 · **State: v0.4.4 validated for low-speed BMC RPM and 30% calibration defaults; release deployment in progress.**
+**Last updated:** 2026-11-14 · **State: v0.4.4 installed and verified; low-speed BMC RPM fixed, calibration defaults to 30%.**
 Branch `main` → github.com/russellmm/openfan-linux. Spec / design: [`openfan-ubuntu.md`](openfan-ubuntu.md). Hardware findings journal: [`spike-notes.md`](spike-notes.md). Manual install chain (udev, modules-load, helper service): [`packaging/README.md`](packaging/README.md). CPU power CLI + boot persistence: [`tools/hsmp-control/README.md`](tools/hsmp-control/README.md).
 NOTE: history was rewritten once before the first push to scrub a sudo password from old STATUS revisions. Keep credentials out of these docs — that includes paths to local password/token files.
 
@@ -19,6 +19,15 @@ NOTE: history was rewritten once before the first push to scrub a sudo password 
   updated. **325 tests pass**, including end-to-end alarmed RPM through the helper client
   and rejection of unavailable/invalid readings without hardware writes.
 - Hardware evidence is in ignored `publish/release-v0.4.4/`.
+- Installed package built from clean source `fb1f86af0b6048405897ba6b12cf42366b9394a9`; SHA-256
+  `6032b5e543d862996e1f4334b0f0dcb50d4d30af9178043814234ac2f0a2d58b`. Both installed binaries match the package, package verification is clean,
+  and the helper is active. Profile/calibration hashes, CPU/PPT settings, GPU power limits
+  and all seven original fan curves match pre-upgrade snapshots.
+- Live post-upgrade tests retain 360 RPM with `lcr` on CHA_FAN2 at 20% and CHA_FAN3 at
+  26%; both exact original curves restored. Isolated installed-GUI checks verify 30%
+  opening duty, selectable 20%, successful auto-step recording from 20%, and retained
+  RTX PRO 6000 30% minimum. GUI write checks used a private simulated helper endpoint;
+  live RPM tests used the real helper. Test points were discarded; user profiles untouched.
 
 ## Version 0.4.3: full-range PWM correction
 
