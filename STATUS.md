@@ -1,10 +1,10 @@
 # OpenFan Linux — Project Status & Handover
 
-**Last updated:** 2026-11-14 · **State: v0.4.2 release preparation, including the verified WRX90 BMC implementation.**
+**Last updated:** 2026-11-14 · **State: v0.4.2 published on GitHub and installed with verified WRX90 BMC support.**
 Branch `main` → github.com/russellmm/openfan-linux. Spec / design: [`openfan-ubuntu.md`](openfan-ubuntu.md). Hardware findings journal: [`spike-notes.md`](spike-notes.md). Manual install chain (udev, modules-load, helper service): [`packaging/README.md`](packaging/README.md). CPU power CLI + boot persistence: [`tools/hsmp-control/README.md`](tools/hsmp-control/README.md).
 NOTE: history was rewritten once before the first push to scrub a sudo password from old STATUS revisions. Keep credentials out of these docs — that includes paths to local password/token files.
 
-## Version 0.4.2 release preparation
+## Version 0.4.2 release
 
 - OpenFan's assembly/package version is now **0.4.2**. Home and About both obtain the
   displayed version from the assembly; About no longer contains a stale hard-coded version.
@@ -15,7 +15,24 @@ NOTE: history was rewritten once before the first push to scrub a sudo password 
   describe the `openfan_0.4.2_amd64.deb` upgrade and preserved profiles.
 - Build the release installer from its clean tagged source with
   `bash packaging/build-deb.sh publish/packages/v0.4.2 0.4.2`.
-  Installation/publication verification is recorded after deployment.
+- Published [OpenFan Linux v0.4.2](https://github.com/russellmm/openfan-linux/releases/tag/v0.4.2)
+  on November 14, 2026 (Pacific time). Annotated tag `v0.4.2` points to clean source commit
+  `de4916ba447da60d9ee2f2c9c19d5b34e7c876e7`. This deployment record is a later
+  documentation-only commit; the release tag remains on its exact package source.
+- Release assets: `openfan_0.4.2_amd64.deb` (55,134,080 bytes) and `SHA256SUMS`.
+  Installer SHA-256: `854ee8ba319b98ee9292940266906717ab3a462177d4be42f0f60c45bc95652a`.
+  Both published files were downloaded again and matched their local SHA-256 hashes.
+  Local release files are in ignored `publish/packages/v0.4.2/`.
+- The exact release package is installed as **openfan 0.4.2**. App/helper hashes match
+  the package, `dpkg --verify openfan` reports no differences, and the active helper
+  serves seven BMC zones. Installed build-info identifies the clean release source commit.
+  Isolated monitor-only GUI captures verified **v0.4.2** on both Home and About, with
+  BMC included in backend labels. No test GUI remains running.
+- **297 tests pass**; Release solution/app/helper builds succeeded. Upgrade checks
+  confirmed unchanged selected profile, other profile files, RTX routing, captured CPU
+  frequency/PPT limits, GPU power limits and all seven BMC curves. Build/install logs,
+  GUI captures, deployment snapshots and downloaded-asset verification are in ignored
+  `publish/release-v0.4.2/`. No reboot was performed.
 
 ## November 14: initial WRX90 BMC implementation and validation
 
@@ -26,7 +43,7 @@ NOTE: history was rewritten once before the first push to scrub a sudo password 
 - Built and installed local package **0.4.1+20261114.bmc1**. Existing installed app/helper
   paths remain the same; `openfan-helper.service` is active with seven verified BMC zones.
   At this initial validation stage the implementation was local and uncommitted; the 0.4.2
-  release preparation above supersedes that package-only revision.
+  release above supersedes that package-only revision.
 - New root driver: `AsusBmcController`; app backend: `BmcHelperClient`; diagnostic:
   CLI `--bmc-probe`. Uses existing kernel IPMI plus `ipmitool`, with fixed helper commands,
   exact write/readback, exclusive session ownership, a 15-second lease, saved-curve journal
