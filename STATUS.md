@@ -1,8 +1,24 @@
 # OpenFan Linux — Project Status & Handover
 
-**Last updated:** 2026-11-14 · **State: v0.4.3 published and installed; artificial PWM floors removed, native BMC zero-command rejection unresolved.**
+**Last updated:** 2026-11-14 · **State: v0.4.4 validated for low-speed BMC RPM and 30% calibration defaults; release deployment in progress.**
 Branch `main` → github.com/russellmm/openfan-linux. Spec / design: [`openfan-ubuntu.md`](openfan-ubuntu.md). Hardware findings journal: [`spike-notes.md`](spike-notes.md). Manual install chain (udev, modules-load, helper service): [`packaging/README.md`](packaging/README.md). CPU power CLI + boot persistence: [`tools/hsmp-control/README.md`](tools/hsmp-control/README.md).
 NOTE: history was rewritten once before the first push to scrub a sudo password from old STATUS revisions. Keep credentials out of these docs — that includes paths to local password/token files.
+
+## Version 0.4.4: low-speed RPM and calibration defaults
+
+- Fixed BMC telemetry dropping valid numeric RPM when SDR status reports a threshold
+  alarm. Live CHA_FAN2 at 20% and CHA_FAN3 at 26% both reported 360 RPM with `lcr`
+  while the old helper returned null. Threshold statuses now preserve numeric RPM;
+  unavailable, disabled, nonfinite or invalid values stay missing. No firmware thresholds
+  were changed. Both tested zones' original curves were restored exactly.
+- Calibration opens at 30% (or a higher hardware minimum). Auto step starts at the
+  current slider value and displays its range. Lower manual targets remain available;
+  this is a starting default, not a new fan floor. RTX PRO 6000 retains its 30% minimum.
+  Existing calibration points are preserved. Native BMC zero-command rejection remains.
+- App version **0.4.4**; README, installation, calibration, BMC guide and release notes
+  updated. **325 tests pass**, including end-to-end alarmed RPM through the helper client
+  and rejection of unavailable/invalid readings without hardware writes.
+- Hardware evidence is in ignored `publish/release-v0.4.4/`.
 
 ## Version 0.4.3: full-range PWM correction
 

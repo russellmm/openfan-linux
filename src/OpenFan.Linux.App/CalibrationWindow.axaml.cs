@@ -68,7 +68,7 @@ public sealed partial class CalibrationWindow : Window
         RebuildRows();
 
         DutySlider.Minimum = Math.Clamp(item.MinPercent, 0, 100);
-        DutySlider.Value = DutySlider.Minimum;
+        DutySlider.Value = Math.Max(30, DutySlider.Minimum);
         DutySlider.ValueChanged += (_, e) =>
         {
             if (_sweep is not null && !_movingSweepSlider) EndSweep();
@@ -88,7 +88,7 @@ public sealed partial class CalibrationWindow : Window
         _timer.Start();
 
         EndSweep();
-        ApplyCommand((int)DutySlider.Value); // explicitly apply even when Value was already zero
+        ApplyCommand((int)DutySlider.Value); // explicitly apply the initial 30% target (or hardware minimum)
         Validate();
     }
 
@@ -102,6 +102,7 @@ public sealed partial class CalibrationWindow : Window
         StatusText.IsVisible = !_commandSucceeded;
         if (!_commandSucceeded && _sweep is not null) EndSweep();
         UpdateAddCurrentLabel();
+        if (_sweep is null) UpdateSweepButton();
     }
 
     private double? MeasuredRpm()
@@ -162,7 +163,7 @@ public sealed partial class CalibrationWindow : Window
             EndSweep(); // clicking again stops the sweep, keeping everything sampled so far
             return;
         }
-        _sweep = CalibrationRules.SweepPercents(_item.MinPercent);
+        _sweep = CalibrationRules.SweepPercents(Math.Max(_item.MinPercent, (int)DutySlider.Value));
         _sweepIndex = 0;
         GoToSweepStep();
     }
@@ -185,8 +186,11 @@ public sealed partial class CalibrationWindow : Window
     private void EndSweep()
     {
         _sweep = null;
-        AutoStepBtn.Content = $"Auto step {CalibrationRules.SweepPercents(_item.MinPercent)[0]}–100%";
+        UpdateSweepButton();
     }
+
+    private void UpdateSweepButton()
+        => AutoStepBtn.Content = $"Auto step {(int)DutySlider.Value}–100%";
 
     // ---- sample table --------------------------------------------------------
 

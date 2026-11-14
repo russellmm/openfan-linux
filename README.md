@@ -23,8 +23,8 @@ Threadripper PRO 9975WX / WRX90E-SAGE SE and RTX 5060 Ti / 2× RTX PRO 6000 Blac
 ## Installed application
 
 Download the amd64 Debian installer and checksum from [GitHub Releases](https://github.com/russellmm/openfan-linux/releases).
-The current version is **v0.4.3**, tested on Ubuntu 26.10. See the
-[v0.4.3 release notes](docs/releases/v0.4.3.md) for full-range BMC PWM control and calibration.
+The current version is **v0.4.4**, tested on Ubuntu 26.10. See the
+[v0.4.4 release notes](docs/releases/v0.4.4.md) for low-speed BMC RPM readings and 30% calibration defaults.
 
 Build a self-contained Ubuntu/Debian package with `bash packaging/build-deb.sh "$HOME/Downloads/OpenFan"`.
 It installs the app under `/opt/openfan/app`, the launcher as `/usr/bin/openfan`, and the privileged
@@ -48,7 +48,8 @@ See [installation, upgrades and launcher migration](docs/installation.md).
   will not let the OS write them.
 
 - **Home** — every PWM control as a card: click-to-rename, curve assignment dropdown, live duty %, tach RPM,
-  per-fan manual calibration window (auto-step sweep with avoid-band support).
+  per-fan manual calibration window (opens at 30%; auto-step starts from the selected duty).
+  BMC threshold alarms retain their numeric RPM readings, including at low speed.
   NVIDIA curve targets of 0% use the GPU's automatic policy to allow firmware fan-stop;
   positive targets resume manual control. The card shows **0% (auto)** with measured RPM,
   since the GPU can still run its fan when its own thermal rules require it. Nonzero hardware

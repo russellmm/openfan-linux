@@ -64,6 +64,10 @@ The card labels the requested duty **target**, and RPM is measured
 separately from BMC SDRs, refreshed every two seconds. Target duty is unknown while
 the original firmware curve is active; it is not guessed from temperature or RPM.
 The temperature source remains whichever source the firmware was already using.
+Since 0.4.4, numeric RPM readings are retained for threshold-alarm statuses, including
+`lnc`, `lcr` and `lnr`. Live CHA_FAN2 at 20% reported 360 RPM with `lcr`, which older
+OpenFan versions incorrectly hid. Disabled/unavailable sensors remain missing; no alarm
+thresholds are changed. Calibration opens at 30%; lower targets are still selectable.
 
 **Firmware zero-command limitation:** live tests found that the validated BMC revision
 rejects any tested zero-duty point through `30 0e 04` with OEM completion 0xD9.

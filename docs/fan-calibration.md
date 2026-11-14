@@ -4,14 +4,16 @@ Open **Home → Calibrate** on a motherboard or NVIDIA fan card. The link enable
 has a real paired RPM reading; a stopped fan's 0 RPM is valid. It updates after startup as readings
 arrive. GPUs without working RPM feedback retain the manual **RPM table** fallback.
 
-Move the slider to command the fan, then let its RPM settle. The slider percentage, live command
+Calibration opens at **30%** (or the hardware minimum if higher). The slider still allows lower
+commands down to the control's supported minimum. Move the slider to command the fan, then let its RPM settle. The slider percentage, live command
 label and **Point %** follow together. **Add (…%, …RPM)** records the current slider command and
 measured RPM. The adjacent **Add** uses Point % instead: edit Point % to deliberately override
 the point's percentage without changing the fan command. Moving the slider resets Point % to match.
 
-Automatic stepping starts at the selected control's minimum and proceeds to 100% in 10% steps.
-BMC and other zero-floor controls include 0%, 10% and 20%. The RTX PRO 6000
-starts at 30%; lower commands are not added to its sweep. GPU and BMC steps wait eight seconds;
+Automatic stepping starts at the slider's current percentage and proceeds to 100% in 10% steps.
+The button displays that starting percentage: by default **Auto step 30–100%**. To measure
+lower duties, move the slider down before starting the sweep. The RTX PRO 6000 retains its
+30% hardware minimum. GPU and BMC steps wait eight seconds;
 direct hwmon motherboard steps wait 3.5 seconds. Allow additional settling and replace a point manually if
 needed. Stop a sweep by clicking its button again or by moving the slider yourself. A rejected
 command or missing RPM stops the sweep without adding a point for that step; missing readings
@@ -27,6 +29,11 @@ adds no 20% minimum, fixed pump duty or temperature override. A zero target prog
 duty in every BMC curve point; the RPM readout remains measured. CPU_FAN and CPU_OPT still
 share one hardware zone. Existing calibration tables are retained; add low-duty points or
 run a new sweep to measure them.
+
+Since 0.4.4, BMC RPM readings remain visible when the BMC flags a low-speed threshold alarm.
+For example, CHA_FAN2 at 20% reported 360 RPM with status `lcr`; this is a real reading,
+not missing telemetry. Disabled, unavailable and nonnumeric readings still display **— RPM**
+and cannot be sampled. OpenFan does not change firmware alarm thresholds.
 
 On the tested BMC firmware, actual zero-duty commands are rejected with OEM code 0xD9.
 OpenFan reports the firmware error and restores the original curve; no 0% calibration

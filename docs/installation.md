@@ -9,11 +9,11 @@ setup remain separate; see [packaging setup](../packaging/README.md).
 ## Build and install
 
 For a ready-built installer, use [GitHub Releases](https://github.com/russellmm/openfan-linux/releases).
-Download `openfan_0.4.3_amd64.deb` and `SHA256SUMS` into the same directory, then verify and install:
+Download `openfan_0.4.4_amd64.deb` and `SHA256SUMS` into the same directory, then verify and install:
 
 ```sh
 sha256sum -c SHA256SUMS
-sudo apt install ./openfan_0.4.3_amd64.deb
+sudo apt install ./openfan_0.4.4_amd64.deb
 sudo usermod -aG openfan "$USER"
 ```
 
@@ -22,7 +22,9 @@ amd64. Other Debian/Ubuntu versions must satisfy the declared dependencies and a
 
 Version 0.4.2 adds local BMC fan control for the validated ASUS Pro WS WRX90E-SAGE SE firmware.
 Version 0.4.3 removes the initial software-imposed BMC minimums and temperature override:
-all seven zones expose 0–100% targets, and zero-floor calibration sweeps start at 0%.
+all seven zones expose 0–100% targets. Version 0.4.4 opens calibration at 30%, starts
+auto-step from the selected slider value, and retains numeric BMC RPM readings during
+threshold alarms. Lower manual targets remain available.
 The tested BMC firmware rejects actual zero-duty commands; 0.4.3 reports this and restores
 the original curve rather than substituting a nonzero duty or recording a failed sample.
 Install the app and helper together using the package. This backend also requires `ipmitool`

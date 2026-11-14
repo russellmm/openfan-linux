@@ -244,8 +244,11 @@ public sealed class AsusBmcController : IDisposable
                     foreach (var line in result.Output.Split('\n'))
                     {
                         var cells = line.Split('|', StringSplitOptions.TrimEntries);
-                        if (cells.Length == 5 && cells[2] == "ok" && cells[4].EndsWith(" RPM", StringComparison.Ordinal) &&
-                            double.TryParse(cells[4][..^4], NumberStyles.Float, CultureInfo.InvariantCulture, out var rpm) && rpm >= 0)
+                        // Threshold alarms (for example lcr) describe fan speed, not reading validity.
+                        // Unavailable/disabled sensors must still remain missing.
+                        if (cells.Length == 5 && cells[2] is "ok" or "nc" or "cr" or "nr" or "lnc" or "lcr" or "lnr" or "unc" or "ucr" or "unr" &&
+                            cells[4].EndsWith(" RPM", StringComparison.Ordinal) &&
+                            double.TryParse(cells[4][..^4], NumberStyles.Float, CultureInfo.InvariantCulture, out var rpm) && double.IsFinite(rpm) && rpm >= 0)
                             _rpms[cells[0]] = rpm;
                     }
                 else LastError = "BMC fan RPM read failed: " + result.Error;

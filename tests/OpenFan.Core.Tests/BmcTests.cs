@@ -19,6 +19,7 @@ public sealed class BmcTests : IDisposable
         public readonly BmcProbeReport Report = Fixture();
         public readonly Dictionary<int, byte[]> States;
         public readonly List<string[]> Writes = [];
+        public string? FanReadings;
         public bool FailWrite;
         public bool RejectZero;
         public bool FailReadbackOnce;
@@ -28,6 +29,8 @@ public sealed class BmcTests : IDisposable
             .ToDictionary(c => int.Parse(c.Arguments[5][2..], NumberStyles.HexNumber), c => AsusBmcController.ParseHex(c.Output));
         public BmcCommandResult Run(string[] args)
         {
+            if (FanReadings is not null && args.SequenceEqual(new[] { "-I", "open", "sdr", "type", "Fan" }))
+                return new(args, 0, FanReadings, "");
             if (args.Length >= 5 && args[2..5].SequenceEqual(new[] { "raw", "0x30", "0x0e" }))
             {
                 Writes.Add(args);
@@ -112,6 +115,40 @@ public sealed class BmcTests : IDisposable
         driver.SetDefault(owner, Id(1)).Should().BeTrue();
         fw.States[1].Should().Equal(originals[1]);
         File.Exists(Journal).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("ok", "240 RPM", 240d)]
+    [InlineData("lnc", "360 RPM", 360d)]
+    [InlineData("lcr", "360 RPM", 360d)]
+    [InlineData("lnr", "0 RPM", 0d)]
+    [InlineData("unc", "3600 RPM", 3600d)]
+    [InlineData("ucr", "3600 RPM", 3600d)]
+    [InlineData("unr", "3600 RPM", 3600d)]
+    [InlineData("nc", "240 RPM", 240d)]
+    [InlineData("cr", "240 RPM", 240d)]
+    [InlineData("nr", "0 RPM", 0d)]
+    [InlineData("cr", "0 RPM", 0d)]
+    [InlineData("ns", "240 RPM", null)]
+    [InlineData("na", "240 RPM", null)]
+    [InlineData("cr", "No Reading", null)]
+    [InlineData("ns", "Disabled", null)]
+    [InlineData("ok", "NaN RPM", null)]
+    [InlineData("ok", "Infinity RPM", null)]
+    [InlineData("cr", "-120 RPM", null)]
+    public async Task AlarmedRpmReachesClientWhileUnavailableReadingsStayMissing(string status, string value, double? expected)
+    {
+        var fw = new Firmware { FanReadings = $"CHA_FAN2 | 35h | {status} | 29.0 | {value}\n" };
+        using var driver = Controller(fw);
+        await using var server = new HelperServer(new NoFans(), Path.Combine(_root, "helper.sock"), bmc: driver);
+        server.Start();
+        using var client = new BmcHelperClient(server.SocketPath);
+        client.Discover();
+        var readings = new Dictionary<string, double?>();
+        client.ReadInto(readings);
+        readings["bmc:asus-wrx90:tach:2"].Should().Be(expected);
+        readings["bmc:asus-wrx90:tach:4"].Should().BeNull("disconnected fans must not become zero RPM");
+        fw.Writes.Should().BeEmpty("reading an alarm must not alter hardware or thresholds");
     }
 
     [Theory]
