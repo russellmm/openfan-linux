@@ -1,6 +1,6 @@
 # OpenFan Linux — Project Status & Handover
 
-**Last updated:** 2026-11-14 · **State: v0.4.3 full-range BMC PWM correction prepared for deployment.**
+**Last updated:** 2026-11-14 · **State: v0.4.3 published and installed; artificial PWM floors removed, native BMC zero-command rejection unresolved.**
 Branch `main` → github.com/russellmm/openfan-linux. Spec / design: [`openfan-ubuntu.md`](openfan-ubuntu.md). Hardware findings journal: [`spike-notes.md`](spike-notes.md). Manual install chain (udev, modules-load, helper service): [`packaging/README.md`](packaging/README.md). CPU power CLI + boot persistence: [`tools/hsmp-control/README.md`](tools/hsmp-control/README.md).
 NOTE: history was rewritten once before the first push to scrub a sudo password from old STATUS revisions. Keep credentials out of these docs — that includes paths to local password/token files.
 
@@ -25,6 +25,21 @@ NOTE: history was rewritten once before the first push to scrub a sudo password 
   zero-duty control path has been verified. **True fan-stop remains unresolved**, separate
   from the removed software floors and temperature override. Hardware records are under
   ignored `publish/release-v0.4.3/`; all test changes were restored.
+- Published [v0.4.3](https://github.com/russellmm/openfan-linux/releases/tag/v0.4.3)
+  from clean source `c3fe8a54eb2d0e9c4288412b3b977a3b818d7167`; the annotated release
+  tag remains on that exact package source. Installer: `openfan_0.4.3_amd64.deb`,
+  55,134,360 bytes; SHA-256 `b0f5d30638e0ae9829074d8749f80c82812d7d708c14540ce48412f3c8b95745`.
+  Installer and SHA256SUMS were downloaded from GitHub and matched local files.
+- Installed app/helper hashes match the release package; `dpkg --verify openfan` is clean,
+  helper active, all seven reported minimums are 0%. Selected profile/calibration hashes,
+  captured CPU/PPT settings, GPU power limits and all seven original BMC curves match
+  pre-upgrade snapshots. No personal calibration points were changed or test points saved.
+- Isolated GUI checks confirmed CPU calibration starts at 0% with Auto step 0–100%,
+  while RTX PRO 6000 stays at 30% with Auto step 30–100%. Mocked writes verified the
+  requested percentages without moving GPU fans; a separate installed-GUI check against
+  the real BMC showed the explicit 0xD9 rejection and disabled sample recording at 0%.
+  These captures and deployment/firmware records are in `publish/release-v0.4.3/`.
+  No test GUI remains running; no reboot, firmware update or control-source switch was done.
 
 ## Version 0.4.2 release (historical)
 
