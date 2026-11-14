@@ -107,6 +107,11 @@ public sealed partial class MainWindow : Window
             _sensorsPageBuilt = false;
             NvmeLabels = new(ReadNvmeLabels);
         };
+        _app.CurveSensorChoicesChanged += () =>
+        {
+            _homeAliasesDirty = true;
+            if (HomePanel.IsVisible) { RebuildCurveCards(); _homeAliasesDirty = false; }
+        };
         _app.Ticked += UpdateValues;
         RebuildCards();
         RebuildCurveCards();
@@ -1918,9 +1923,7 @@ public sealed partial class MainWindow : Window
         var sensorBox = new ComboBox { Width = 260, HorizontalAlignment = HorizontalAlignment.Left };
         FlatCombo(sensorBox);
         var sensorItems = new List<(ComboBoxItem Item, string Id, string BaseLabel)>();
-        foreach (var t in _app.Inventory
-                     .Where(i => i.Kind == HardwareKind.Temperature)
-                     .OrderBy(i => i.Group).ThenBy(i => i.Name))
+        foreach (var t in _app.CurveSensors)
         {
             var item = new ComboBoxItem { Tag = t.Id };
             sensorBox.Items.Add(item);
@@ -1933,6 +1936,10 @@ public sealed partial class MainWindow : Window
         void ApplySelection()
         {
             var want = WantedIndex();
+            sensorBox.PlaceholderText = _app.CurveSourcePlaceholder(curve.SensorId);
+            ToolTip.SetTip(sensorBox, want < 0 && curve.SensorId is not null
+                ? "Current source: " + sensorBox.PlaceholderText + ". Enable Use in curves on Sensors to list it. The curve still uses this source."
+                : "Choose temperature sources using Use in curves on the Sensors tab.");
             // Force through -1 so a stale (blank) selection box rebuilds.
             suppress = true;
             sensorBox.SelectedIndex = -1;

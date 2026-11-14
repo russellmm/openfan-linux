@@ -1,8 +1,27 @@
 # OpenFan Linux — Project Status & Handover
 
-**Last updated:** 2026-11-14 · **State: v0.4.4 installed and verified; low-speed BMC RPM fixed, calibration defaults to 30%.**
+**Last updated:** 2026-11-14 · **State: v0.4.5 source selection implemented; GUI validation and release deployment in progress.**
 Branch `main` → github.com/russellmm/openfan-linux. Spec / design: [`openfan-ubuntu.md`](openfan-ubuntu.md). Hardware findings journal: [`spike-notes.md`](spike-notes.md). Manual install chain (udev, modules-load, helper service): [`packaging/README.md`](packaging/README.md). CPU power CLI + boot persistence: [`tools/hsmp-control/README.md`](tools/hsmp-control/README.md).
 NOTE: history was rewritten once before the first push to scrub a sudo password from old STATUS revisions. Keep credentials out of these docs — that includes paths to local password/token files.
+
+## Version 0.4.5: choose curve sources on Sensors
+
+- Added per-row Use in curves checkboxes. Temperature sources are opt-in; all default
+  unchecked, including legacy profiles. Other measurement types show disabled checkboxes.
+  Profile `curveSensorIds` persists the list independently of existing graph SensorId
+  assignments. Unchecking never unbinds a graph or changes fan control/calibration.
+- Both curve cards and graph editors now use FanApp.CurveSensors and the shared
+  CurveSensorSelection filter over the existing merged inventory. Sensors and curves
+  already consumed one published readings dictionary; no duplicate reader was added.
+  SensorValue now delegates to Reading rather than duplicating the lookup.
+- Source/alias/inventory changes refresh open graph editors. Current unchecked sources
+  display (not listed), absent sources (unavailable). Menu entries remain strictly opt-in.
+  Checked sources are sampled for visible Home/open editors even with hidden table groups;
+  assigned graph inputs remain sampled independently of the checkbox.
+- **333 tests pass** for selection, legacy/null defaults, profile persistence, absent
+  sensors and assigned-source demand after unchecking. App Release build succeeds.
+- Isolated UI validation uses private settings and a simulated fan-write helper; all real
+  hardware telemetry stays read-only. Records in ignored `publish/release-v0.4.5/`.
 
 ## Version 0.4.4: low-speed RPM and calibration defaults
 

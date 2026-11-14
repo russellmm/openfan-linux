@@ -44,6 +44,16 @@ pointers invalidated by another reader. Configured labels/ignores/conversion rul
 library. Existing temperature/tach ids are retained for saved curves and aliases, except newly
 integrated SPD5118 hubs use physical controller/address identities instead of boot-specific hwmon indices.
 
+## Curve source selection (v0.4.5)
+
+Sensors now has a **Use in curves** checkbox on every row. Temperature sensors can be
+checked to appear in curve cards and graph editors; other measurement types are disabled.
+Selections default unchecked and persist per profile in `curveSensorIds`. Existing curve
+assignments are retained independently, including when a source is unchecked or absent.
+Both selectors use one filter over the same merged inventory and published readings as
+the table. Selected sources remain sampled while Home or an editor is open; active curves
+retain their required inputs regardless of menu/table visibility. See [user guide](curve-sensors.md).
+
 ## Actual coverage on this machine
 
 The former Sensors page had **60 rows**. With the October 19 DDR5 and NVMe updates, the page has

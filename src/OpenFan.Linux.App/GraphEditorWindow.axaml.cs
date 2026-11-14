@@ -43,17 +43,9 @@ public sealed partial class GraphEditorWindow : Window
 
         Title = TitleText.Text = $"Edit graph — {original.Name}";
 
+        RefreshSensorChoices();
+        _app.CurveSensorChoicesChanged += RefreshSensorChoices;
         _suppress = true;
-        foreach (var t in app.Inventory
-                     .Where(i => i.Kind == HardwareKind.Temperature)
-                     .OrderBy(i => i.Group).ThenBy(i => i.Name))
-        {
-            var item = new ComboBoxItem { Tag = t.Id };
-            SensorBox.Items.Add(item);
-            _sensorItems.Add((item, t.Id, app.SensorLabel(t))); // sensor name only — group is noise here
-        }
-        SensorBox.SelectedItem = SensorBox.Items
-            .OfType<ComboBoxItem>().FirstOrDefault(i => (string?)i.Tag == _edit.SensorId);
         HystCBox.Value = (decimal)_edit.HysteresisC;
         HystSBox.Value = (decimal)_edit.HysteresisS;
         MaxSpeedBox.Value = (decimal)_edit.MaxSpeedPercent;
@@ -71,7 +63,9 @@ public sealed partial class GraphEditorWindow : Window
         SensorBox.SelectionChanged += (_, _) =>
         {
             if (_suppress) return;
-            _edit.SensorId = (SensorBox.SelectedItem as ComboBoxItem)?.Tag as string;
+            // A menu rebuild/unchecked current source must not unbind the working copy.
+            if ((SensorBox.SelectedItem as ComboBoxItem)?.Tag is not string id) return;
+            _edit.SensorId = id;
             RefreshTemp();
         };
         HystCBox.ValueChanged += (_, e) =>
@@ -152,7 +146,35 @@ public sealed partial class GraphEditorWindow : Window
             _tempTimer.Start();
             RefreshTemp();
         };
-        Closed += (_, _) => _tempTimer.Stop();
+        _app.OpenGraphEditors++;
+        Closed += (_, _) =>
+        {
+            _tempTimer.Stop();
+            _app.CurveSensorChoicesChanged -= RefreshSensorChoices;
+            _app.OpenGraphEditors--;
+        };
+    }
+
+    private void RefreshSensorChoices()
+    {
+        var previous = _suppress;
+        _suppress = true;
+        try
+        {
+            SensorBox.Items.Clear();
+            _sensorItems.Clear();
+            foreach (var sensor in _app.CurveSensors)
+            {
+                var item = new ComboBoxItem { Tag = sensor.Id };
+                SensorBox.Items.Add(item);
+                _sensorItems.Add((item, sensor.Id, _app.SensorLabel(sensor)));
+            }
+            SensorBox.SelectedItem = SensorBox.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (string?)i.Tag == _edit.SensorId);
+            SensorBox.PlaceholderText = _app.CurveSourcePlaceholder(_edit.SensorId);
+            ToolTip.SetTip(SensorBox, "Choose sources using Use in curves on Sensors. Unlisting a source keeps existing curve assignments.");
+        }
+        finally { _suppress = previous; }
+        RefreshTemp();
     }
 
     private static CurveSettings Clone(CurveSettings c) =>
@@ -305,7 +327,7 @@ public sealed partial class GraphEditorWindow : Window
     private void RefreshTemp()
     {
         var t = CurrentTemp();
-        TempReadout.Text = t is null ? "no sensor selected" : $"{t:0.0} °C";
+        TempReadout.Text = t is null ? (_edit.SensorId is null ? "no sensor selected" : "reading unavailable") : $"{t:0.0} °C";
 
         // Live readings inside the sensor dropdown, e.g. "Composite · nvme — 41 °C".
         foreach (var (item, id, baseLabel) in _sensorItems)

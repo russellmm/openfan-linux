@@ -47,6 +47,7 @@ public sealed class FanApp : IDisposable
     public bool DeferInventoryDiscovery { get; set; }
     public bool HomeVisible { get; set; } = true;
     public bool GpuPageVisible { get; set; }
+    public int OpenGraphEditors { get; set; }
     public double? HudValue(string sourceId) => Reading(SensorPollingPlan.ResolveHudId(_inventory, sourceId));
     public void ResetSensorStatistics()
     {
@@ -56,6 +57,28 @@ public sealed class FanApp : IDisposable
 
     /// <summary>Control id set changed — UI rebuilds cards.</summary>
     public event Action? InventoryChanged;
+
+    public event Action? CurveSensorChoicesChanged;
+    public IReadOnlyList<HardwareItem> CurveSensors => CurveSensorSelection.Available(_inventory, Settings);
+
+    public void SetCurveSensorEnabled(string id, bool enabled)
+    {
+        if (enabled && !_inventory.Any(i => i.Id == id && CurveSensorSelection.CanUse(i))) return;
+        Settings.CurveSensorIds.RemoveAll(existing => existing == id);
+        if (enabled) Settings.CurveSensorIds.Add(id);
+        Save();
+        RefreshCurveSensorChoices();
+    }
+
+    public void RefreshCurveSensorChoices() => CurveSensorChoicesChanged?.Invoke();
+
+    public string CurveSourcePlaceholder(string? id)
+    {
+        if (id is null) return CurveSensors.Count == 0 ? "Choose sources on Sensors" : "Select a temperature sensor";
+        var item = _inventory.FirstOrDefault(i => i.Id == id);
+        return (item is null ? Settings.SensorAliases.GetValueOrDefault(id, id) : SensorLabel(item)) +
+               (item is null ? " (unavailable)" : " (not listed)");
+    }
 
     /// <summary>One read/apply cycle finished — UI refreshes values.</summary>
     public event Action? Ticked;
@@ -283,19 +306,19 @@ public sealed class FanApp : IDisposable
             _inventory = merged;
             _fingerprint = fingerprint;
             InventoryChanged?.Invoke();
+            RefreshCurveSensorChoices();
         }
     }
 
     /// <summary>Latest reading for a sensor id from the same dictionary the control loop evaluates
     /// curves against (populated by <see cref="Tick"/>). Null = unknown id or no reading this tick.</summary>
-    public double? SensorValue(string sensorId) =>
-        _readings.TryGetValue(sensorId, out var v) ? v : null;
+    public double? SensorValue(string sensorId) => Reading(sensorId);
 
     public void Tick()
     {
         if (_disposed || _tickInFlight) return;
         RefreshInventory();
-        PublishReadings(ReadHardware(SensorPollingPlan.Create(_inventory, Settings, HomeVisible, GpuPageVisible, Controller.PausedControlId)));
+        PublishReadings(ReadHardware(SensorPollingPlan.Create(_inventory, Settings, HomeVisible, GpuPageVisible, Controller.PausedControlId, curveEditorVisible: OpenGraphEditors > 0)));
     }
 
     /// <summary>One outstanding read batch. Driver latency cannot block normal UI interaction.</summary>
@@ -306,7 +329,7 @@ public sealed class FanApp : IDisposable
         _tickInFlight = true;
         try
         {
-            var requested = SensorPollingPlan.Create(_inventory, Settings, HomeVisible, GpuPageVisible, Controller.PausedControlId);
+            var requested = SensorPollingPlan.Create(_inventory, Settings, HomeVisible, GpuPageVisible, Controller.PausedControlId, curveEditorVisible: OpenGraphEditors > 0);
             _pollTask = Task.Run(() => ReadHardware(requested));
             var readings = await _pollTask;
             // A profile/source change during a read must not apply a sample from the old inventory.

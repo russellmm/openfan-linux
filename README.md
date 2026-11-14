@@ -23,8 +23,8 @@ Threadripper PRO 9975WX / WRX90E-SAGE SE and RTX 5060 Ti / 2× RTX PRO 6000 Blac
 ## Installed application
 
 Download the amd64 Debian installer and checksum from [GitHub Releases](https://github.com/russellmm/openfan-linux/releases).
-The current version is **v0.4.4**, tested on Ubuntu 26.10. See the
-[v0.4.4 release notes](docs/releases/v0.4.4.md) for low-speed BMC RPM readings and 30% calibration defaults.
+The current version is **v0.4.5**, tested on Ubuntu 26.10. See the
+[v0.4.5 release notes](docs/releases/v0.4.5.md) for sensor selection in curve menus.
 
 Build a self-contained Ubuntu/Debian package with `bash packaging/build-deb.sh "$HOME/Downloads/OpenFan"`.
 It installs the app under `/opt/openfan/app`, the launcher as `/usr/bin/openfan`, and the privileged
@@ -59,6 +59,9 @@ See [installation, upgrades and launcher migration](docs/installation.md).
   **OK** saves points and avoid flags directly into the active configuration JSON; Cancel discards
   table edits. Save configuration also includes the accepted points. See [fan calibration](docs/fan-calibration.md).
 - **Curve library** — curves are first-class named objects; assign one curve to many fans.
+  Check **Use in curves** on Sensors to choose temperature sources for curve cards and graph
+  editors. All start unchecked; existing curve assignments remain intact when unlisted.
+  Both selectors use the Sensors page's shared inventory and readings. See [choosing curve sensors](docs/curve-sensors.md).
   - *Flat*: fixed % · *Graph*: temperature→% points with hysteresis + live mini-preview · *Mix*: max/min/average of other curves
   - Save/load whole setups as portable JSON profiles.
 - **GPUs page** — per card: utilization + VRAM bars, temp / power draw-vs-limit / P-state / fan % / RPM / clocks,

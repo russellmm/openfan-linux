@@ -13,6 +13,10 @@ public sealed class AppSettings
     /// <summary>Friendly display names for sensors, keyed by sensor id. Empty/absent = hardware name.</summary>
     public Dictionary<string, string> SensorAliases { get; set; } = [];
 
+    /// <summary>Opt-in temperature sources for curve menus. Empty/absent = none listed;
+    /// existing curves retain their SensorId independently of this presentation choice.</summary>
+    public List<string> CurveSensorIds { get; set; } = [];
+
     /// <summary>Sensor-table visibility. Hidden/collapsed groups pause optional polling, not fan-curve/HUD inputs.</summary>
     public List<string> HiddenSensorGroups { get; set; } = [];
     public List<string> CollapsedSensorDevices { get; set; } = [];
@@ -193,6 +197,7 @@ public sealed class SettingsStore
         loaded.HiddenSensorGroups ??= [];
         loaded.CollapsedSensorDevices ??= [];
         loaded.CollapsedSensorGroups ??= [];
+        loaded.CurveSensorIds ??= [];
         loaded.SensorNicknames ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         loaded.PowerTargetsWatts ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         loaded.AccentColor = AccentHex.Normalize(loaded.AccentColor);

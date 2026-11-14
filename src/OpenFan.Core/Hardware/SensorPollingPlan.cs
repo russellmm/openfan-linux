@@ -51,7 +51,7 @@ public static class SensorPollingPlan
     }
 
     public static HashSet<string> Create(IReadOnlyList<HardwareItem> inventory, AppSettings settings,
-        bool homeVisible = false, bool gpuPageVisible = false, string? calibrationControlId = null)
+        bool homeVisible = false, bool gpuPageVisible = false, string? calibrationControlId = null, bool curveEditorVisible = false)
     {
         var requested = inventory.Where(i => TableVisible(i, settings) && !settings.CollapsedSensorGroups.Contains(Group(i)) && !settings.CollapsedSensorDevices.Contains(CollapseKey(i)))
             .Select(i => i.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -72,9 +72,13 @@ public static class SensorPollingPlan
         }
         if (settings.HudEnabled)
             foreach (var tile in settings.HudTiles) requested.Add(ResolveHudId(inventory, tile.SourceId));
+        if (homeVisible || curveEditorVisible)
+        {
+            foreach (var item in CurveSensorSelection.Available(inventory, settings)) requested.Add(item.Id);
+            foreach (var curve in settings.Curves) RequireCurve(curve.Id);
+        }
         if (homeVisible)
         {
-            foreach (var curve in settings.Curves) RequireCurve(curve.Id);
             foreach (var item in inventory.Where(i => i.Kind == HardwareKind.Control))
             {
                 if (settings.Controls.Any(c => c.Id.Equals(item.Id, StringComparison.OrdinalIgnoreCase) && c.Hidden)) continue;

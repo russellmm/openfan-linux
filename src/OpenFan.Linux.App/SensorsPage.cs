@@ -17,7 +17,7 @@ public sealed partial class MainWindow
     private readonly List<(string Id, Control Row, Action<SensorStatistics.Snapshot> Update)> _sensorValueUpdaters = [];
     private TextBox? _activeSensorEditor;
     private bool _homeAliasesDirty;
-    private const string SensorColumns = "*,88,88,88,88,52";
+    private const string SensorColumns = "*,88,88,88,88,52,100";
 
     private string SensorsSubtitle()
     {
@@ -74,7 +74,7 @@ public sealed partial class MainWindow
         var heading = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
         heading.Children.Add(new TextBlock
         {
-            Text = "Statistics since launch or last reset",
+            Text = "Statistics since launch or last reset · Check Use in curves to list a temperature source in graph menus.",
             FontSize = 12, Foreground = Secondary, TextWrapping = TextWrapping.Wrap,
             VerticalAlignment = VerticalAlignment.Center,
         });
@@ -228,11 +228,12 @@ public sealed partial class MainWindow
     private Control BuildSensorTableHeader()
     {
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions(SensorColumns), MinHeight = 27 };
-        var labels = new[] { "Sensor", "Current", "Min", "Max", "Average", "Unit" };
+        var labels = new[] { "Sensor", "Current", "Min", "Max", "Average", "Unit", "Use in curves" };
         for (var i = 0; i < labels.Length; i++)
         {
             var text = SensorCell(labels[i]); text.FontFamily = FontFamily.Default; text.FontWeight = FontWeight.SemiBold;
             if (i == 0) text.HorizontalAlignment = HorizontalAlignment.Left;
+            if (i == 6) text.HorizontalAlignment = HorizontalAlignment.Center;
             grid.Children.Add(Col(text, i));
         }
         return new Border { Child = grid, Background = new SolidColorBrush(Color.Parse("#171B1F")),
@@ -280,6 +281,7 @@ public sealed partial class MainWindow
                     savedName = text;
                     _app.Save();
                     _homeAliasesDirty = true; // Build hidden curve dropdowns only when Home is visited.
+                    _app.RefreshCurveSensorChoices();
                 }
                 label.Text = savedName;
                 nameHost.Child = label;
@@ -311,6 +313,18 @@ public sealed partial class MainWindow
             ? SensorCountFormat.Format(value) : value?.ToString(format, CultureInfo.CurrentCulture) ?? "—";
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions(SensorColumns), MinHeight = 26,
             Children = { nameHost, Col(current, 1), Col(minimum, 2), Col(maximum, 3), Col(average, 4), Col(SensorCell(unit), 5) } };
+        var useInCurves = new CheckBox
+        {
+            IsChecked = CurveSensorSelection.CanUse(item) && _app.Settings.CurveSensorIds.Contains(item.Id),
+            IsEnabled = CurveSensorSelection.CanUse(item), HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center, MinHeight = 32, Height = 32, Padding = new Thickness(0), Tag = item.Id,
+        };
+        Avalonia.Automation.AutomationProperties.SetName(useInCurves, $"Use {savedName} in curves");
+        ToolTip.SetTip(useInCurves, CurveSensorSelection.CanUse(item)
+            ? "List this sensor in curve cards and graph editors. Unchecking keeps existing curve assignments."
+            : "Graph curves use temperature sensors (°C). This reading cannot be used as a temperature source.");
+        useInCurves.IsCheckedChanged += (_, _) => _app.SetCurveSensorEnabled(item.Id, useInCurves.IsChecked == true);
+        grid.Children.Add(Col(useInCurves, 6));
         var thresholds = item.Kind == HardwareKind.Temperature && (item.Id.StartsWith("hwmon:spd5118:", StringComparison.Ordinal) || item.Id.StartsWith("hwmon:nvme:", StringComparison.Ordinal))
             ? DramTemperatureLimits.Suffixes.Where(s => _app.Inventory.Any(i => i.Kind == HardwareKind.TemperatureLimit && i.Id == DramTemperatureLimits.Id(item.Id, s))).ToArray()
             : [];
@@ -320,7 +334,7 @@ public sealed partial class MainWindow
             limitText = new TextBlock { FontSize = 11, Foreground = Secondary, Margin = new Thickness(5, 0, 5, 5), TextWrapping = TextWrapping.Wrap };
             ToolTip.SetTip(limitText, "Drive/module alarm thresholds, separate from measured Min/Max columns and shown read-only. Only valid composite NVMe limits are shown.");
             grid.RowDefinitions = new RowDefinitions("Auto,Auto");
-            Grid.SetRow(limitText, 1); Grid.SetColumnSpan(limitText, 6); grid.Children.Add(limitText);
+            Grid.SetRow(limitText, 1); Grid.SetColumnSpan(limitText, 7); grid.Children.Add(limitText);
         }
         var row = new Border { Child = grid, BorderBrush = CardBorder, BorderThickness = new Thickness(0, 0, 0, 1) };
         static void Set(TextBlock cell, string text) { if (cell.Text != text) cell.Text = text; }
