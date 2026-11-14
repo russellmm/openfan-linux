@@ -1,6 +1,6 @@
 # OpenFan Linux — Project Status & Handover
 
-**Last updated:** 2026-11-14 · **State: v0.4.6 implemented; eight direct DIMMs restored, BMC telemetry/group validated; deployment in progress.**
+**Last updated:** 2026-11-14 · **State: v0.4.6 installed and verified; all eight direct DIMM temperatures and the BMC sensor group available.**
 Branch `main` → github.com/russellmm/openfan-linux. Spec / design: [`openfan-ubuntu.md`](openfan-ubuntu.md). Hardware findings journal: [`spike-notes.md`](spike-notes.md). Manual install chain (udev, modules-load, helper service): [`packaging/README.md`](packaging/README.md). CPU power CLI + boot persistence: [`tools/hsmp-control/README.md`](tools/hsmp-control/README.md).
 NOTE: history was rewritten once before the first push to scrub a sudo password from old STATUS revisions. Keep credentials out of these docs — that includes paths to local password/token files.
 
@@ -24,6 +24,15 @@ NOTE: history was rewritten once before the first push to scrub a sudo password 
 - **347 tests pass** with all eight BMC slots delivered through the helper, alarm/missing
   parsing, grouping and retained curve selection. Hardware checks and source fixtures in
   ignored `publish/release-v0.4.6/`; temperature fixture contains no credentials or serials.
+- Installed **0.4.6** built from clean source `185505238d6d27cf4e19da94f8d23a8949ef09e1`. Installer SHA-256
+  `7dfc02e98f4e0ae73643a2e854642c28a7195478906a6b4ffa082321ce96f3e0`. Installed app/helper hashes match the package;
+  package verification is clean, helper active. Selected profile/calibration hashes, CPU/PPT
+  settings, GPU power limits and all seven BMC curves remain identical to pre-upgrade.
+- Installed monitor-only GUI with real helper telemetry verified **Memory temperatures (8)**,
+  **BMC (45)** in both the table and Sensor groups picker, and live DIMMA1–DIMMH1 readings.
+  A read-only proxy logged only ping/snapshot requests; no fan or power writes were issued.
+  User profiles were untouched. The installed boot script matches the repo and its service
+  remains enabled; all eight kernel temperatures still read successfully after verification.
 
 ## Version 0.4.5: choose curve sources on Sensors
 
