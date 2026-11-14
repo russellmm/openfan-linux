@@ -22,11 +22,16 @@ use manual control. Firmware may run the fan at zero target when its thermal rul
 Hardware floors still apply to other cards. The RPM column always records the actual paired tach
 reading rather than an interpolated estimate or an assumption about the target.
 
-Since 0.4.3 all ASUS BMC fan headers, including W_PUMP+, accept 0–100% PWM. The driver
+Since 0.4.3 all ASUS BMC fan headers, including W_PUMP+, expose 0–100% PWM targets. The driver
 adds no 20% minimum, fixed pump duty or temperature override. A zero target programs zero
 duty in every BMC curve point; the RPM readout remains measured. CPU_FAN and CPU_OPT still
 share one hardware zone. Existing calibration tables are retained; add low-duty points or
 run a new sweep to measure them.
+
+On the tested BMC firmware, actual zero-duty commands are rejected with OEM code 0xD9.
+OpenFan reports the firmware error and restores the original curve; no 0% calibration
+sample is added and an automatic sweep stops. Lower nonzero commands (1%, 5%, 10%)
+were accepted on CHA_FAN1. Actual fan-stop via this BMC interface remains unresolved.
 
 Only the selected fan is handed to the calibration window; other curves continue. The selected
 curve pauses temporarily without changing its saved Enabled flag. Closing the dialog restores

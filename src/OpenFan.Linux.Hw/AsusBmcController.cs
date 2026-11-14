@@ -131,6 +131,10 @@ public sealed class AsusBmcController : IDisposable
     {
         if (!ValidState(state)) throw new InvalidDataException("Invalid fan restore curve.");
         var result = Run(["raw", "0x30", "0x0e", "0x04", Hex(index), .. state.Skip(1).Select(b => Hex(b))]);
+        if (!result.Success && result.Error.Contains("rsp=0xd9", StringComparison.OrdinalIgnoreCase) &&
+            Enumerable.Range(0, 5).Any(i => state[2 + i * 2] == 0))
+            throw new IOException("BMC firmware rejected 0% PWM for " + SensorNames[index] +
+                " (OEM 0xD9). No nonzero duty was substituted.");
         if (!result.Success || !ReadState(index).SequenceEqual(state))
             throw new IOException("BMC fan write/readback failed for " + SensorNames[index] + ". " + result.Error);
     }
@@ -173,8 +177,8 @@ public sealed class AsusBmcController : IDisposable
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 var failure = ex.Message;
-                Restore(index);
-                LastError = failure + (LastError is null ? "" : " Restore: " + LastError);
+                var restored = Restore(index);
+                LastError = failure + (restored ? " Original curve restored." : " Restore failed: " + LastError);
                 return false;
             }
         }

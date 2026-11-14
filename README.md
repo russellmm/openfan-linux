@@ -36,9 +36,10 @@ See [installation, upgrades and launcher migration](docs/installation.md).
 - **ASUS WRX90 BMC fans** — local IPMI control on the Pro WS WRX90E-SAGE SE, validated with
   BMC firmware 2.01 / auxiliary revision 22. Seven named zones replace the NCT PWM cards:
   CPU_FAN/CPU_OPT together, CHA_FAN1–5, and W_PUMP+. Original curves are restored on release,
-  disconnect or a stalled client, with recovery after a helper crash. All seven zones accept
+  disconnect or a stalled client, with recovery after a helper crash. All seven zones expose
   0–100% PWM targets, including the pump header, with no driver-imposed floor or temperature
-  override. Update both app and helper; `ipmitool` is required.
+  override. The tested BMC firmware rejects actual 0% commands; OpenFan reports that failure
+  and restores the original curve. Update both app and helper; `ipmitool` is required.
   See [BMC support and hardware verification](docs/wrx90-bmc-fans.md).
 
 - **CPU page** — live package temp, socket power draw, PPT cap, TDP, TjMax, load % and boost frequency for the

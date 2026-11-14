@@ -22,7 +22,9 @@ amd64. Other Debian/Ubuntu versions must satisfy the declared dependencies and a
 
 Version 0.4.2 adds local BMC fan control for the validated ASUS Pro WS WRX90E-SAGE SE firmware.
 Version 0.4.3 removes the initial software-imposed BMC minimums and temperature override:
-all seven zones accept 0–100% targets, and zero-floor calibration sweeps start at 0%.
+all seven zones expose 0–100% targets, and zero-floor calibration sweeps start at 0%.
+The tested BMC firmware rejects actual zero-duty commands; 0.4.3 reports this and restores
+the original curve rather than substituting a nonzero duty or recording a failed sample.
 Install the app and helper together using the package. This backend also requires `ipmitool`
 (a recommended package dependency) and an available local IPMI device. Fan writes stay in the
 root helper; the desktop app uses the existing `openfan` group. Existing profiles are preserved;

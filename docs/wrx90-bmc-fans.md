@@ -13,7 +13,7 @@ ID 2623, product ID 4499 (`0x1193`), firmware revision 2.01, auxiliary bytes `22
 eight-slot order and seven expected names/table layouts. Other identities or layouts fail
 closed. The eighth slot is N/A and never becomes a control.
 
-| OpenFan ID suffix | Firmware label | Paired RPM | Policy |
+| OpenFan ID suffix | Firmware label | Paired RPM | Requested target range |
 | --- | --- | --- | --- |
 | `fan:0` | CPU_FAN & CPU_OPT | CPU_FAN | Shared zone, 0–100% |
 | `fan:1` | CHA_FAN1 | CHA_FAN1 | 0–100% |
@@ -65,6 +65,19 @@ separately from BMC SDRs, refreshed every two seconds. Target duty is unknown wh
 the original firmware curve is active; it is not guessed from temperature or RPM.
 The temperature source remains whichever source the firmware was already using.
 
+**Firmware zero-command limitation:** live tests found that the validated BMC revision
+rejects any tested zero-duty point through `30 0e 04` with OEM completion 0xD9.
+CPU_FAN and attached CHA_FAN1/2/3/5 all rejected a flat-zero command. On CHA_FAN1,
+flat 1%, 5%, 10%, 20%, 70% and 100% commands succeeded. The generic manual's
+`30 13 02` setter rejected even the original curve with completion 0xC7 (request length),
+so it is not used as a fallback. Direct NCT pwm1=0/enable=1 held those register values
+for twelve seconds but did not change CHA_FAN1 RPM; the old controller path does not
+provide a verified zero-duty bypass. All original curves/modes were restored afterward.
+The 0–100% range is the software request range, not a claim that the current BMC accepts
+zero. OpenFan reports the zero-command error and rolls back; it never maps zero to 1%.
+True fan-stop through this firmware interface remains unresolved. No firmware update,
+global control-source change or fan-alarm threshold change was made.
+
 Before the first write to a zone, the helper saves its exact active curve to a private,
 atomically replaced `/var/lib/openfan/bmc-restore.json`, with a machine-identity check.
 Each session owns its zones exclusively. Release, disconnect, graceful helper shutdown
@@ -105,5 +118,6 @@ come from live firmware labels and SDR records.
 The checked-in, credential-free response fixture is `tests/OpenFan.Core.Tests/Fixtures/asus-wrx90-bmc.json`.
 Tests exercise read-only probing, identity rejection, single-zone writes/readback,
 zero targets on every BMC zone, range validation, journal failures/recovery, competing clients,
-lease expiration, socket disconnect and re-arming after control loss. Full suite: **306 passing tests**.
+lease expiration, socket disconnect and re-arming after control loss. Firmware zero-rejection
+rollback is also covered. Full suite: **307 passing tests**.
 Local verification records are under ignored `publish/bmc-audit/`.

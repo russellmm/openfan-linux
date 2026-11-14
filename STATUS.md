@@ -7,7 +7,7 @@ NOTE: history was rewritten once before the first push to scrub a sudo password 
 ## Version 0.4.3: full-range PWM correction
 
 - Removed driver-imposed BMC floors: all seven zones, including W_PUMP+, now expose
-  minimum 0% and accept 0–100% targets. Manual targets write the same duty to all five
+  minimum 0% and expose 0–100% targets. Manual targets submit the same duty to all five
   BMC curve points. The previous 70°C override is removed; thermal policy belongs to
   the user's OpenFan curves. The original-curve journal and restore/lease behavior remain.
 - Calibration no longer adds its own 20% sweep minimum. A zero-floor control sweeps
@@ -15,8 +15,16 @@ NOTE: history was rewritten once before the first push to scrub a sudo password 
   writer's minimum preserved. Old calibration points are not changed or fabricated.
 - Version bumped to **0.4.3**. [Release notes](docs/releases/v0.4.3.md),
   [calibration guide](docs/fan-calibration.md), [BMC guide](docs/wrx90-bmc-fans.md) and
-  installation documentation updated. **306 tests pass**, including zero-duty commands,
+  installation documentation updated. **307 tests pass**, including zero-duty requests,
   readback and exact restoration on every zone plus helper-client and sweep regressions.
+- Live firmware testing found an additional limitation: actual 0% commands return OEM
+  0xD9 on CPU_FAN and attached chassis zones; CHA_FAN1 accepts flat 1/5/10/20/70/100%.
+  Zero rejection is reported and rolled back without silently substituting another duty.
+  The generic documented configuration setter returned 0xC7 even for the original curve.
+  Direct NCT zero held its register values but did not change physical RPM. No alternate
+  zero-duty control path has been verified. **True fan-stop remains unresolved**, separate
+  from the removed software floors and temperature override. Hardware records are under
+  ignored `publish/release-v0.4.3/`; all test changes were restored.
 
 ## Version 0.4.2 release (historical)
 

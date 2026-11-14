@@ -20,6 +20,7 @@ public sealed class BmcTests : IDisposable
         public readonly Dictionary<int, byte[]> States;
         public readonly List<string[]> Writes = [];
         public bool FailWrite;
+        public bool RejectZero;
         public bool FailReadbackOnce;
         private bool _afterWrite;
 
@@ -30,6 +31,8 @@ public sealed class BmcTests : IDisposable
             if (args.Length >= 5 && args[2..5].SequenceEqual(new[] { "raw", "0x30", "0x0e" }))
             {
                 Writes.Add(args);
+                if (RejectZero && args.Skip(7).Where((_, i) => i % 2 == 1).Any(a => Convert.ToByte(a, 16) == 0))
+                    return new(args, 1, "", "Unable to send RAW command (cmd=0xe rsp=0xd9): Unknown (0xD9)");
                 if (FailWrite) return new(args, 1, "", "write refused");
                 States[Convert.ToInt32(args[6], 16)] = [4, .. args.Skip(7).Select(a => Convert.ToByte(a, 16))];
                 _afterWrite = true;
@@ -131,7 +134,7 @@ public sealed class BmcTests : IDisposable
     [InlineData(4)]
     [InlineData(5)]
     [InlineData(6)]
-    public void EveryBmcZoneAcceptsZeroAndRestoresItsOriginalCurve(int index)
+    public void ZeroIsSubmittedUnclampedOnEveryZoneAndRestoredWhenFirmwareAcceptsIt(int index)
     {
         var fw = new Firmware(); using var driver = Controller(fw);
         var before = fw.States[index].ToArray(); var owner = Guid.NewGuid();
@@ -141,6 +144,20 @@ public sealed class BmcTests : IDisposable
         driver.Snapshot(owner).Channels.Single(c => c.Index == index).TargetPercent.Should().Be(0);
         driver.SetDefault(owner, Id(index)).Should().BeTrue();
         fw.States[index].Should().Equal(before);
+    }
+
+    [Fact]
+    public void FirmwareZeroRejectionIsReportedWithoutSubstitutingOnePercent()
+    {
+        var fw = new Firmware { RejectZero = true }; using var driver = Controller(fw);
+        var before = fw.States[1].ToArray(); var owner = Guid.NewGuid();
+        driver.SetPercent(owner, Id(1), 0).Should().BeFalse();
+        driver.LastError.Should().Contain("firmware rejected 0% PWM").And.Contain("0xD9").And.Contain("Original curve restored");
+        fw.States[1].Should().Equal(before);
+        driver.Snapshot(owner).Channels.Single(c => c.Index == 1).TargetPercent.Should().BeNull();
+        File.Exists(Journal).Should().BeFalse();
+        fw.Writes.Should().HaveCount(2, "one zero request and one original-curve restoration, with no fallback duty");
+        fw.Writes[0].Skip(7).Where((_, i) => i % 2 == 1).Should().OnlyContain(a => Convert.ToByte(a, 16) == 0);
     }
 
     [Fact]
